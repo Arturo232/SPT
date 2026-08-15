@@ -83,9 +83,15 @@ def asistente():
 
     # 1) Fuente
     print("1) FUENTE")
-    v_linea = input_helpers("positive", "Tension de linea de la fuente VL (V): ")
+    tipo_dato = input_helpers("choice", "¿Que dato de tension tiene?",
+                              ["Tension de linea (VL)", "Tension de fase (Vf)"])
+    dato = "linea" if tipo_dato == 1 else "fase"
+    etiqueta = "VL (V)" if dato == "linea" else "Vf (V)"
+    v = input_helpers("positive", "Magnitud de la tension %s: " % etiqueta)
     angulo = input_helpers("number", "Angulo de la fase a (grados, 0 por defecto): ")
-    circuito.set_fuente(v_linea, angulo)
+    circuito.set_fuente(v, angulo, dato)
+    print("  Fuente: V_L = %.4g V | V_f = %.4g V"
+          % (circuito.v_linea, abs(circuito.v_fuente_fase)))
 
     # 2) Linea
     print("\n2) LINEA DE TRANSMISION (impedancia serie, 0 si es directa)")
@@ -135,13 +141,17 @@ _AYUDA = """
 COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
 --------------------------------------------
 DEFINICION DEL CIRCUITO
-  fuente <VL> [angulo]     Define la tension de linea de la fuente.
-  linea <R+jX>             Define la impedancia de linea (serie).
+  fuente <magnitud> [linea|fase] [angulo]
+                     Define la tension de la fuente. Por defecto se
+                     interpreta como tension de LINEA (VL); use 'fase' si
+                     el dato es la tension de fase (Vf).
+                     Ej: fuente 208  |  fuente 120 fase  |  fuente 120 f 0
+  linea <R+jX>       Define la impedancia de linea (serie).
   carga <Y|Delta> <R+jX>   Agrega una carga en paralelo (conversion D->Y
                            automatica).
-  add <Y|D> <R+jX>         Igual que 'carga'.
-  cargas                   Muestra las cargas definidas.
-  limpiar                  Elimina todas las cargas.
+  add <Y|D> <R+jX>   Igual que 'carga'.
+  cargas             Muestra las cargas definidas.
+  limpiar            Elimina todas las cargas.
 
 RESOLUCION
   resolver | solve         Resuelve el circuito y muestra el reporte completo.
@@ -206,12 +216,25 @@ def _ejecutar_comando(circuito, linea):
 
     if cmd in ("fuente", "vfuente", "set-fuente"):
         if len(args) < 1:
-            error_analizador("circuito", "argumentos", "Uso: fuente <VL> [angulo]")
-        v_linea = float(args[0])
-        angulo = float(args[1]) if len(args) > 1 else 0.0
-        circuito.set_fuente(v_linea, angulo)
-        print("  Fuente: VL = %g V, fase a = %s"
-              % (v_linea, _fmt(circuito.v_fuente_fase)))
+            error_analizador("circuito", "argumentos",
+                             "Uso: fuente <magnitud> [linea|fase] [angulo]")
+        v = float(args[0])
+        dato = "linea"
+        angulo = 0.0
+        if len(args) >= 2:
+            if args[1].lower() in ("linea", "l", "line", "vl"):
+                dato = "linea"
+                angulo = float(args[2]) if len(args) > 2 else 0.0
+            elif args[1].lower() in ("fase", "f", "phase", "vf"):
+                dato = "fase"
+                angulo = float(args[2]) if len(args) > 2 else 0.0
+            else:
+                # el segundo argumento es el angulo (compatibilidad)
+                angulo = float(args[1])
+        circuito.set_fuente(v, angulo, dato)
+        print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
+              % (circuito.v_linea, abs(circuito.v_fuente_fase),
+                 _fasor(circuito.v_fuente_fase)))
         return
 
     if cmd in ("linea", "zlinea", "set-linea"):

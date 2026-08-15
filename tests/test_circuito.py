@@ -165,6 +165,42 @@ def test_comandos_consulta_variables():
         _ejecutar_comando(c2, cmd)
 
 
+def test_fuente_desde_voltaje_de_fase():
+    """Si el dato es V_f, se deriva V_L = sqrt(3)*V_f."""
+    c = CircuitoTrifasico()
+    c.set_fuente(120, 0, "fase")
+    assert abs(c.v_linea - 120 * math.sqrt(3)) < 1e-9
+    assert abs(abs(c.v_fuente_fase) - 120) < 1e-9
+    assert abs(c.v_fuente_fase.real - 120) < 1e-9
+
+    # equivalente a definir V_L directamente
+    c2 = CircuitoTrifasico()
+    c2.set_fuente(120 * math.sqrt(3), 0, "linea")
+    assert abs(c.v_fuente_fase - c2.v_fuente_fase) < 1e-9
+
+
+def test_fuente_desde_linea_por_defecto():
+    c = CircuitoTrifasico()
+    c.set_fuente(208)
+    assert abs(c.v_linea - 208) < 1e-9
+    assert abs(abs(c.v_fuente_fase) - 208 / math.sqrt(3)) < 1e-9
+
+
+def test_comando_fuente_fase():
+    c = CircuitoTrifasico()
+    _ejecutar_comando(c, "fuente 120 fase")
+    assert abs(c.v_linea - 120 * math.sqrt(3)) < 1e-9
+    assert abs(abs(c.v_fuente_fase) - 120) < 1e-9
+    # con angulo
+    _ejecutar_comando(c, "fuente 100 f 30")
+    assert abs(abs(c.v_fuente_fase) - 100) < 1e-9
+    assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 30) < 1e-9
+    # compatibilidad: fuente <VL> [angulo]
+    _ejecutar_comando(c, "fuente 208 15")
+    assert abs(c.v_linea - 208) < 1e-9
+    assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 15) < 1e-9
+
+
 def test_errores_estado():
     c = CircuitoTrifasico()
     raises_codigo(lambda: c.impedancia_equivalente(),

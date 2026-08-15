@@ -48,11 +48,30 @@ class CircuitoTrifasico:
     # ------------------------------------------------------------------
     # Configuración del estado
     # ------------------------------------------------------------------
-    def set_fuente(self, v_linea, angulo_deg=0.0):
-        """Define la tensión de línea de la fuente [V]."""
-        validate_input("positive", v_linea, "VL")
+    def set_fuente(self, v, angulo_deg=0.0, dato="linea"):
+        """Define la tensión de la fuente.
+
+        Parámetros:
+          v       : magnitud de la tensión [V]
+          angulo_deg : ángulo de la fase a [grados] (por defecto 0)
+          dato    : 'linea' (V_L, por defecto) o 'fase' (V_f)
+
+        Si ``dato='fase'``, se deriva ``V_L = sqrt(3) * V_f``.
+        Internamente se conserva siempre ``v_linea`` y el fasor de fase.
+        """
+        validate_input("positive", v, "V")
+        d = str(dato).lower()
+        if d in ("linea", "l", "line", "vl"):
+            v_linea = v
+            v_fase = v / math.sqrt(3)
+        elif d in ("fase", "f", "phase", "vf"):
+            v_linea = v * math.sqrt(3)
+            v_fase = v
+        else:
+            error_analizador("circuito", "datoFuenteInvalido",
+                             "Error: el tipo de dato debe ser 'linea' o 'fase'. Valor: {0}", dato)
         self.v_linea = v_linea
-        self.v_fuente_fase = polar_to_complex(v_linea / math.sqrt(3), angulo_deg)
+        self.v_fuente_fase = polar_to_complex(v_fase, angulo_deg)
         return self
 
     def set_linea(self, z_linea):

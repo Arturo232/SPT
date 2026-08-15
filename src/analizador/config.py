@@ -77,6 +77,7 @@ def mensajes() -> dict:
         "analizador:circuito:comandoDesconocido": "Error: comando no reconocido. Escriba 'ayuda' para ver los comandos.",
         "analizador:circuito:complejoInvalido": "Error: no pude interpretar el numero complejo. Use el formato R+jX (ej. 10+5j).",
         "analizador:circuito:argumentos": "Error: argumentos insuficientes para el comando.",
+        "analizador:circuito:datoFuenteInvalido": "Error: el tipo de dato de la fuente debe ser 'linea' o 'fase'.",
     }
     return catalogo
 
