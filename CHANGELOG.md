@@ -3,6 +3,28 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [1.4.0] - 2026-08-15
+
+### Añadido
+
+- **Interfaz gráfica (GUI)** con `customtkinter` (`analizador-gui`):
+  - Sidebar fijo con navegación por temas, botones con hover y selector
+    de tema (Dark / Light / System).
+  - Área principal dinámica con vistas en cards: Potencia compleja,
+    Corrección de FP, Circuito (mono/tri con lista de cargas) y Sistema
+    p.u.
+  - Feedback visual inmediato: barra de estado con mensajes de
+    éxito/error y barra de progreso.
+  - Entradas con placeholders, unidades visibles y validación previa al
+    cálculo con alertas visuales.
+  - Desacoplamiento total: las vistas solo invocan al backend
+    (`resolver`, `services`, `circuito`); sin lógica de negocio en la GUI.
+- Componentes reutilizables (`gui/components.py`): `Card`,
+  `LabeledEntry`, `StatusFeedback`, `leer_float`.
+- Dependencia `customtkinter` y punto de entrada `analizador-gui`.
+- Tests de la GUI (componentes, registro de vistas y smoke de ventana,
+  con skip automático si no hay pantalla).
+
 ## [1.3.0] - 2026-08-15
 
 ### Añadido

@@ -18,6 +18,7 @@ pip install -e .[dev]
 
 ```bash
 analizador          # menú CLI interactivo
+analizador-gui      # interfaz gráfica (customtkinter)
 python -m analizador
 ```
 
@@ -29,6 +30,25 @@ En el menú principal:
  1..12. Modulos tematicos
  H. Ayuda / como usar
 ```
+
+## Interfaz gráfica (GUI)
+
+`analizador-gui` abre una ventana moderna (customtkinter, modo oscuro por
+defecto) con:
+
+- **Sidebar** fijo: navegación por temas y selector de tema
+  (Dark / Light / System).
+- **Área principal dinámica** con tarjetas (cards) de Entradas y
+  Resultados por tema:
+  - Potencia compleja (desde P/FP o desde V/Z).
+  - Corrección de factor de potencia.
+  - Circuito monofásico/trifásico (fuente + línea + cargas en paralelo).
+  - Sistema por unidad (p.u.).
+- **Feedback visual inmediato**: barra de estado con mensajes de éxito
+  (verde) o error (rojo) y barra de progreso.
+- **Validación de entradas** con placeholders y alertas visuales.
+- **Desacoplamiento**: la GUI solo invoca al backend (`services`,
+  `resolver`, `circuito`); los resultados son idénticos a la consola.
 
 Desde Python:
 
@@ -107,6 +127,7 @@ Sin el símbolo de ángulo en el teclado, use `@` (arroba) o la letra `a`:
 ```text
 analizador/
 ├── main.py          % Punto de entrada (menú principal, opción C/A/1-12)
+├── gui/             % Interfaz gráfica (customtkinter: app, components, views)
 ├── circuito.py      % CircuitoTrifasico y CircuitoMonofasico (estado de red)
 ├── asistente.py     % Consola de comandos (mono/tri) y asistente guiado
 ├── core.py          % Núcleo matemático (V, I, Z, Y, S, FP, validaciones)
