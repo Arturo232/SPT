@@ -5,8 +5,11 @@ o estructuras de resultado (``SimpleNamespace``) según el contrato de datos
 (ver ``docs/contratos.md``).
 """
 
+from __future__ import annotations
+
 import math
 from types import SimpleNamespace
+from typing import Union
 
 import numpy as np
 
@@ -14,8 +17,12 @@ from .errors import error_analizador
 
 _EPS = np.finfo(float).eps
 
+# Alias de tipos reutilizables
+Scalar = Union[int, float, complex, np.number]
+NumericLike = Union[Scalar, np.ndarray, list, tuple]
 
-def _es_numerico(valor) -> bool:
+
+def _es_numerico(valor: object) -> bool:
     if isinstance(valor, np.ndarray):
         return valor.dtype.kind in "biufc"
     if isinstance(valor, (list, tuple)):
@@ -26,7 +33,7 @@ def _es_numerico(valor) -> bool:
 # ---------------------------------------------------------------------------
 # Validaciones de entrada
 # ---------------------------------------------------------------------------
-def validate_input(kind: str, value, name: str = "valor"):
+def validate_input(kind: str, value: NumericLike, name: str = "valor") -> None:
     """Validaciones comunes de entrada para todo el proyecto.
 
     ``kind`` admite: 'numeric', 'fp', 'positive', 'frequency', 'nonzero',
@@ -71,7 +78,7 @@ def validate_input(kind: str, value, name: str = "valor"):
 # ---------------------------------------------------------------------------
 # Números complejos
 # ---------------------------------------------------------------------------
-def polar_to_complex(mag, angle_deg):
+def polar_to_complex(mag: NumericLike, angle_deg: NumericLike) -> np.ndarray | complex:
     """Convierte un fasor polar a rectangular. ``z = M*(cos + j*sin)``."""
     validate_input("numeric", mag, "mag")
     validate_input("numeric", angle_deg, "angleDeg")
@@ -79,10 +86,10 @@ def polar_to_complex(mag, angle_deg):
         error_analizador("core", "magNegativa",
                          "Error: la magnitud debe ser no negativa. Valor recibido: {0}", mag)
     rad = np.deg2rad(angle_deg)
-    return mag * (np.cos(rad) + 1j * np.sin(rad))
+    return mag * (np.cos(rad) + 1j * np.sin(rad))  # type: ignore[return-value]
 
 
-def complex_to_polar(z):
+def complex_to_polar(z: NumericLike) -> SimpleNamespace:
     """Convierte un complejo a polar. Regresa ``{mag, angleDeg}``."""
     validate_input("numeric", z, "z")
     return SimpleNamespace(mag=abs(z), angleDeg=np.rad2deg(np.angle(z)))
@@ -91,69 +98,69 @@ def complex_to_polar(z):
 # ---------------------------------------------------------------------------
 # V, I, Z, Y, S
 # ---------------------------------------------------------------------------
-def complex_power(V, I):
+def complex_power(V: NumericLike, I: NumericLike) -> np.ndarray | complex:
     """Potencia compleja ``S = V * conj(I)``."""
     validate_input("numeric", V, "V")
     validate_input("numeric", I, "I")
     if np.shape(V) != np.shape(I):
         error_analizador("core", "dimensiones",
                          "Error: V e I deben tener las mismas dimensiones.")
-    return V * np.conjugate(I)
+    return V * np.conjugate(I)  # type: ignore[return-value]
 
 
-def current_from_voltage_impedance(V, Z):
+def current_from_voltage_impedance(V: NumericLike, Z: NumericLike) -> np.ndarray | complex:
     """Ley de Ohm compleja: ``I = V / Z``."""
     validate_input("numeric", V, "V")
     validate_input("numeric", Z, "Z")
     validate_input("nonzero", Z, "Z")
-    return V / Z
+    return V / Z  # type: ignore[return-value]
 
 
-def voltage_from_current_impedance(I, Z):
+def voltage_from_current_impedance(I: NumericLike, Z: NumericLike) -> np.ndarray | complex:
     """Ley de Ohm compleja: ``V = I * Z``."""
     validate_input("numeric", I, "I")
     validate_input("numeric", Z, "Z")
-    return I * Z
+    return I * Z  # type: ignore[return-value]
 
 
-def current_from_power(S, V):
+def current_from_power(S: NumericLike, V: NumericLike) -> np.ndarray | complex:
     """``S = V*conj(I)  =>  I = conj(S / V)``."""
     validate_input("numeric", S, "S")
     validate_input("numeric", V, "V")
     validate_input("nonzero", V, "V")
-    return np.conjugate(S / V)
+    return np.conjugate(S / V)  # type: ignore[return-value]
 
 
-def impedance_from_power(V, S):
+def impedance_from_power(V: NumericLike, S: NumericLike) -> np.ndarray | complex:
     """``Z = |V|^2 / conj(S) = V*conj(V)/conj(S)``."""
     validate_input("numeric", V, "V")
     validate_input("numeric", S, "S")
     validate_input("nonzero", S, "S")
-    return (V * np.conjugate(V)) / np.conjugate(S)
+    return (V * np.conjugate(V)) / np.conjugate(S)  # type: ignore[return-value]
 
 
-def admittance_from_impedance(Z):
+def admittance_from_impedance(Z: NumericLike) -> np.ndarray | complex:
     """``Y = 1 / Z``."""
     validate_input("numeric", Z, "Z")
     validate_input("nonzero", Z, "Z")
-    return 1.0 / Z
+    return 1.0 / Z  # type: ignore[return-value]
 
 
-def impedance_from_admittance(Y):
+def impedance_from_admittance(Y: NumericLike) -> np.ndarray | complex:
     """``Z = 1 / Y``."""
     validate_input("numeric", Y, "Y")
     validate_input("nonzero", Y, "Y")
-    return 1.0 / Y
+    return 1.0 / Y  # type: ignore[return-value]
 
 
-def apparent_power(P, Q):
+def apparent_power(P: NumericLike, Q: NumericLike) -> np.ndarray | float:
     """Potencia aparente ``|S| = sqrt(P^2 + Q^2)``."""
     validate_input("numeric", P, "P")
     validate_input("numeric", Q, "Q")
-    return np.hypot(P, Q)
+    return np.hypot(P, Q)  # type: ignore[return-value]
 
 
-def power_factor(S):
+def power_factor(S: NumericLike) -> SimpleNamespace:
     """Factor de potencia y tipo de carga a partir de ``S``.
 
     Convención de signos: ``Q > 0`` → inductiva / atraso; ``Q < 0`` →
@@ -177,7 +184,7 @@ def power_factor(S):
     return result
 
 
-def power_from_vi(V, I):
+def power_from_vi(V: NumericLike, I: NumericLike) -> SimpleNamespace:
     """Estructura completa de potencia a partir de ``V`` e ``I``.
 
     Regresa ``{V, I, S, P, Q, Sabs, fp, phi_deg, type}``.
@@ -198,9 +205,9 @@ def power_from_vi(V, I):
     return result
 
 
-def rad2deg(x):
-    return np.rad2deg(x)
+def rad2deg(x: NumericLike) -> np.ndarray | float:
+    return np.rad2deg(x)  # type: ignore[return-value]
 
 
-def deg2rad(x):
-    return np.deg2rad(x)
+def deg2rad(x: NumericLike) -> np.ndarray | float:
+    return np.deg2rad(x)  # type: ignore[return-value]

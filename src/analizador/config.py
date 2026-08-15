@@ -4,18 +4,21 @@ Equivalente a ``config/defaultConfig.m`` y ``config/mensajes.m``.
 La configuración externalizada se lee de ``config/config.json``.
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 
-def mensajes() -> dict:
+def mensajes() -> dict[str, str]:
     """Catálogo central de mensajes de error del proyecto.
 
     Clave: ``analizador:<modulo>:<codigo>``; valor: mensaje canónico
     (sin valores interpolados).
     """
-    catalogo = {
+    catalogo: dict[str, str] = {
         # --- núcleo (core) ---
         "analizador:core:noNumerico": "Error: el valor debe ser numerico.",
         "analizador:core:fpInvalido": "Error: el factor de potencia debe estar entre 0 y 1.",
@@ -84,19 +87,19 @@ def mensajes() -> dict:
     return catalogo
 
 
-def default_config() -> dict:
+def default_config() -> dict[str, Any]:
     """Configuración por defecto de la aplicación.
 
     Lee ``config/config.json`` (ruta relativa al paquete) con valores por
     defecto si el archivo no existe o no puede leerse.
     """
-    cfg = {
+    cfg: dict[str, Any] = {
         "frequency": 60,      # frecuencia nominal [Hz]
         "decimals": 4,        # decimales en la presentación
         "tolerance": 1e-6,    # tolerancia numérica de los tests
         "language": "es",     # idioma de la interfaz
     }
-    ruta = Path(os.environ.get("SEP_CONFIG", Path(__file__).parent / "config.json"))
+    ruta = Path(os.environ.get("SEP_CONFIG", str(Path(__file__).parent / "config.json")))
     try:
         if ruta.is_file():
             with open(ruta, "r", encoding="utf-8") as fh:

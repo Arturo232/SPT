@@ -459,3 +459,17 @@ def menu_circuito_trifasico():
         asistente()
     else:
         consola()
+
+
+def menu_taller():
+    """Menú de ejercicios resueltos del Taller 2026 y ejemplos reproducibles."""
+    from .exercises import menu_ejercicios, menu_ejemplos
+    print("\n===== TALLER 2026 Y EJEMPLOS =====")
+    opcion = input_helpers("choice", "Seleccione:", [
+        "Ejercicios del Taller 2026 (1 a 5)",
+        "Ejemplos reproducibles",
+    ])
+    if opcion == 1:
+        menu_ejercicios()
+    else:
+        menu_ejemplos()

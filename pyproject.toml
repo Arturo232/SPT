@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "analizador-sep"
-version = "1.0.0"
+version = "1.7.0"
 description = "Analizador de Sistemas de Potencia (portado de MATLAB a Python)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,7 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+]
 
 [project.scripts]
 analizador = "analizador.main:main"
@@ -27,3 +31,22 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+strict = false
+# Módulos propios — comprobamos lo que podemos sin forzar stubs de numpy
+[[tool.mypy.overrides]]
+module = ["numpy.*", "scipy.*", "matplotlib.*", "customtkinter.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["analizador"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

@@ -8,7 +8,7 @@ from .menus import (menu_circuito_trifasico, menu_circuitos,
                     menu_componentes, menu_correccion_fp, menu_cortocircuito,
                     menu_estabilidad, menu_flujo_carga, menu_flujo_potencia,
                     menu_maquinas, menu_per_unit, menu_potencia_compleja,
-                    menu_transformador, menu_trifasico)
+                    menu_taller, menu_transformador, menu_trifasico)
 from .asistente import consola
 
 _OPCIONES = [
@@ -25,6 +25,7 @@ _OPCIONES = [
     ("10", "Cortocircuitos", menu_cortocircuito),
     ("11", "Maquinas electricas", menu_maquinas),
     ("12", "Estabilidad", menu_estabilidad),
+    ("13", "Ejercicios del taller 2026 / Ejemplos", menu_taller),
 ]
 
 _AYUDA = """
@@ -95,11 +96,14 @@ def main():
         if clave in ("a", "circuito"):
             menu_circuito_trifasico()
             continue
+        if clave in ("t", "taller", "ejercicios"):
+            menu_taller()
+            continue
         if clave in ("h", "ayuda", "help", "?"):
             print(_AYUDA)
             continue
         if not _dispatch(clave):
-            print("Opcion no valida. Use 'C' para la consola, 'A' para el asistente, 'H' para ayuda o '0' para salir.")
+            print("Opcion no valida. Use 'C' para la consola, 'A' para el asistente, 'T' para ejercicios, 'H' para ayuda o '0' para salir.")
 
 
 if __name__ == "__main__":

@@ -354,10 +354,10 @@ def _serializar_para_json(val):
         if np.iscomplexobj(val):
             return {"re": np.real(val).tolist(), "im": np.imag(val).tolist()}
         return val.tolist()
+    if isinstance(val, (complex, np.complexfloating)) or (np.iscomplexobj(val) and np.isscalar(val)):
+        return {"re": float(np.real(val)), "im": float(np.imag(val))}
     if isinstance(val, np.number):
         return val.item()
-    if isinstance(val, complex) or (isinstance(val, (int, float)) and not np.isreal(val)):
-        return {"re": np.real(val), "im": np.imag(val)}
     if isinstance(val, bool):
         return val
     if isinstance(val, (int, float)):

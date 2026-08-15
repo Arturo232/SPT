@@ -1,21 +1,23 @@
 """Manejo de errores unificado del proyecto.
 
 Los identificadores se construyen como ``analizador:<modulo>:<codigo>``.
-El catálogo canónico de mensajes está en ``config.py`` (funcioń ``mensajes``).
+El catálogo canónico de mensajes está en ``config.py`` (función ``mensajes``).
 """
+
+from __future__ import annotations
 
 
 class AnalizadorError(Exception):
     """Excepción con el identificador estándar del proyecto."""
 
-    def __init__(self, codigo: str, mensaje: str):
+    def __init__(self, codigo: str, mensaje: str) -> None:
         self.codigo = codigo
         self.mensaje = mensaje
         super().__init__(mensaje)
 
 
 def error_analizador(modulo: str, codigo: str, formato: str | None = None,
-                     *args):
+                     *args: object) -> None:
     """Lanza un ``AnalizadorError`` con id ``analizador:<modulo>:<codigo>``.
 
     ``formato`` es opcional; si se omite se usa un mensaje genérico.
@@ -28,7 +30,7 @@ def error_analizador(modulo: str, codigo: str, formato: str | None = None,
     raise AnalizadorError(id_, mensaje)
 
 
-def construir_error(err: Exception) -> dict:
+def construir_error(err: Exception) -> dict[str, object]:
     """Construye una estructura de error controlada a partir de una excepción.
 
     Regresa un dict ``{codigo, mensaje, causa}`` usado por la capa de

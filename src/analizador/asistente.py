@@ -291,9 +291,11 @@ CONSULTA DE VARIABLES (tras resolver)
   il                 Corriente de linea.
   if                 Corrientes de fase de cada carga.
   s | potencia       S, P, Q, |S|, FP y phi totales.
-  detalle <n>        Todas las variables de la carga n.
-
-OTROS
+  exportar [fmt] [nom] Exporta el reporte del circuito a TXT, JSON o CSV.
+                     Ej: exportar json | exportar csv mi_circuito.csv
+  grafica [fasores|potencia]
+                     Muestra el diagrama fasorial polar o triangulo P-Q.
+                     Ej: grafica | grafica potencia
   ver                Muestra el estado actual del circuito y que falta.
   reporte            Muestra el ultimo reporte generado.
   ayuda | help       Muestra esta ayuda.
@@ -562,16 +564,24 @@ def _ejecutar_comando(sesion, linea):
         return
 
     if cmd in ("pcarga", "p-carga", "potencia-carga"):
-        # carga definida por su potencia S. En tri: pcarga <Y|Delta> <S>.
-        # En mono: pcarga <S>.
+        # carga definida por su potencia S. En tri: pcarga <Y|Delta> <S> [V_nominal].
+        # En mono: pcarga <S> [V_nominal].
         if len(args) < 1:
             error_analizador("circuito", "argumentos",
                              "Uso: pcarga <S | M angulo A> [V_nominal]"
                              if _es_mono(circuito) else
                              "Uso: pcarga <Y|Delta> <S | M angulo A> [V_nominal]")
         if _es_mono(circuito):
-            s = parse_complejo(" ".join(args))
             v_nominal = None
+            if len(args) >= 2 and not _tiene_angulo(args[-1]):
+                try:
+                    v_nominal = float(args[-1])
+                    s = parse_complejo(" ".join(args[:-1]))
+                except Exception:
+                    v_nominal = None
+                    s = parse_complejo(" ".join(args))
+            else:
+                s = parse_complejo(" ".join(args))
             circuito.agregar_carga_por_potencia(s, v_nominal)
             n = len(circuito.cargas)
             print("  Carga %d por potencia: S = %s -> Z = %s"
@@ -581,8 +591,16 @@ def _ejecutar_comando(sesion, linea):
             error_analizador("circuito", "argumentos",
                              "Uso: pcarga <Y|Delta> <S | M angulo A> [V_nominal]")
         conexion = args[0]
-        s = parse_complejo(" ".join(args[1:]))
         v_nominal = None
+        if len(args) >= 3 and not _tiene_angulo(args[-1]):
+            try:
+                v_nominal = float(args[-1])
+                s = parse_complejo(" ".join(args[1:-1]))
+            except Exception:
+                v_nominal = None
+                s = parse_complejo(" ".join(args[1:]))
+        else:
+            s = parse_complejo(" ".join(args[1:]))
         circuito.agregar_carga_por_potencia(conexion, s, v_nominal)
         n = len(circuito.cargas)
         c = circuito.cargas[-1]
@@ -807,6 +825,68 @@ def _ejecutar_comando(sesion, linea):
         print("  Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
         return
 
+    if cmd in ("exportar", "export", "guardar"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        formato = "txt"
+        archivo = None
+        if len(args) >= 1:
+            if args[0].lower() in ("txt", "json", "csv", "xlsx"):
+                formato = args[0].lower()
+                if len(args) >= 2:
+                    archivo = " ".join(args[1:])
+            else:
+                archivo = " ".join(args)
+                import os
+                ext = os.path.splitext(archivo)[1].lower().replace(".", "")
+                if ext in ("txt", "json", "csv", "xlsx"):
+                    formato = ext
+        if not archivo:
+            modo = sesion.modo
+            archivo = "circuito_%s.%s" % (modo, formato)
+        from .utils import export_results
+        try:
+            if formato == "txt":
+                with open(archivo, "w", encoding="utf-8") as fh:
+                    fh.write(circuito.reporte())
+                ruta_creada = archivo
+            else:
+                ruta_creada = export_results(circuito.resultado, archivo, formato)
+            print("  Reporte exportado exitosamente a: %s" % ruta_creada)
+        except Exception as err:
+            print("  ERROR al exportar: %s" % err)
+        return
+
+    if cmd in ("grafica", "graficar", "plot", "diagrama"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        tipo_grafica = "fasores"
+        if len(args) >= 1 and args[0].lower() in ("potencia", "triangulo", "p", "s"):
+            tipo_grafica = "potencia"
+        import matplotlib.pyplot as plt
+        from .viz import phasor_plot, power_triangle
+        try:
+            r = circuito.resultado
+            if tipo_grafica == "potencia":
+                p_val = r.P
+                q_val = r.Q
+                ax = power_triangle(p_val, q_val, titulo="Triangulo de Potencia - Circuito %s" % sesion.modo.capitalize())
+            else:
+                if _es_mono(circuito):
+                    fasores = [r.v_fuente, r.i_linea, r.v_carga]
+                    etiquetas = ["V_fuente", "I_linea", "V_carga"]
+                else:
+                    fasores = [r.v_fuente_fase, r.i_linea, r.v_carga]
+                    etiquetas = ["Vf_fuente", "I_linea", "Vf_carga"]
+                ax = phasor_plot(fasores, etiquetas=etiquetas, titulo="Diagrama Fasorial - Circuito %s" % sesion.modo.capitalize())
+            plt.show()
+            print("  Grafica generada correctamente.")
+        except Exception as err:
+            print("  ERROR al generar grafica: %s" % err)
+        return
+
     # sugerir comandos parecidos si el usuario se equivoco de tipeo
     sugerencia = _sugerir_comando(cmd)
     if sugerencia:
@@ -820,6 +900,7 @@ _COMANDOS_VALIDOS = [
     "modo", "fuente", "corriente", "vcarga", "linea", "carga", "add",
     "pcarga", "cargas", "limpiar", "resolver", "solve", "reporte",
     "variables", "vl", "vf", "il", "if", "s", "potencia", "detalle", "ver",
+    "exportar", "export", "guardar", "grafica", "graficar", "plot", "diagrama",
     "ayuda", "salir", "exit", "quit",
 ]
 
