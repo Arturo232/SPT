@@ -1,0 +1,16 @@
+# Normaliza saltos de linea: todo texto a LF en el repositorio.
+* text=auto
+
+# Codigo Python con LF (evita conflictos de eol en Windows).
+*.py text eol=lf
+
+# Documentacion en LF.
+*.md text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+
+# Binarios: sin transformacion.
+*.png binary
+*.jpg binary
+*.xlsx binary

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+
+# Entorno / IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Pruebas
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Salidas del analizador (exportaciones temporales)
+*.xlsx
