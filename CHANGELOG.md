@@ -3,6 +3,22 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [1.1.0] - 2026-08-15
+
+### Añadido
+
+- Entorno de resolución de circuitos trifásicos balanceados con estado de
+  red (`analizador.circuito`): fuente (VL), impedancia de línea y N cargas
+  en paralelo (Y o Delta) con conversión Delta→Y automática.
+- Asistente guiado (`analizador.asistente.asistente`): Fuente → Línea →
+  Cargas → Resultados.
+- Consola de comandos (`analizador.asistente.consola`): parser natural
+  (`fuente 208`, `linea 0.1+0.05j`, `carga Delta 30+40j`, `resolver`).
+- Menú principal rediseñado: agrupado por temas, opción destacada 'A' y
+  sección de ayuda (convenciones de signo y unidades).
+- Tests del entorno de circuito (caso del material, conversión Δ→Y,
+  estado acumulativo y comandos).
+
 ## [1.0.0] - 2026-08-15
 
 Port completo del Analizador de Sistemas de Potencia de MATLAB a Python.
