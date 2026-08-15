@@ -95,9 +95,74 @@ def test_reporte_incluye_datos_clave():
     c.resolver()
     reporte = c.reporte()
     for clave in ("Impedancia equivalente", "Corriente de linea",
-                  "Tension en la carga", "Potencia compleja total",
-                  "FP"):
+                  "TENSIONES EN LA CARGA", "POTENCIA",
+                  "Tension de fase", "FP"):
         assert clave in reporte, "Falta '%s' en el reporte" % clave
+
+
+def test_todas_las_variables_fuente():
+    """Verifica Vf/VL de fuente, caida de linea y tensiones de carga."""
+    c = CircuitoTrifasico()
+    c.set_fuente(208, 0)
+    c.set_linea(0.1 + 0.05j)
+    c.agregar_carga("Y", 30 + 40j)
+    r = c.resolver()
+
+    # Vf de la fuente = VL/sqrt(3)
+    assert abs(abs(r.v_fuente_fase) - 208 / math.sqrt(3)) < 1e-9
+    # fasor de línea de la fuente conserva la magnitud VL
+    assert abs(abs(r.v_fuente_linea) - 208) < 1e-9
+    # balance de tensiones: Vf_fuente = V_carga + I*Z_linea
+    assert abs(r.v_fuente_fase - (r.v_carga + r.v_caida_linea)) < 1e-9
+    # caida de linea = I*Z_linea
+    assert abs(r.v_caida_linea - r.i_linea * r.z_linea) < 1e-9
+
+
+def test_detalle_por_carga_y():
+    """Carga en Y: I_f = I_L, V_L = sqrt(3)*V_f."""
+    c = CircuitoTrifasico()
+    c.set_fuente(208, 0)
+    c.agregar_carga("Y", 30 + 40j)
+    r = c.resolver()
+    det = r.cargas[0]
+    assert det["conexion"] == "Y"
+    # If = IL ; VL = sqrt(3)*|Vf|
+    assert abs(det["i_fase"] - det["i_linea"]) < 1e-9
+    assert abs(abs(det["v_linea_fasor"]) - math.sqrt(3) * abs(det["v_fase"])) < 1e-9
+    # S de la carga es 1/3 del total cuando hay una sola carga
+    assert abs(det["P"] - r.P) < 1e-9
+    assert abs(det["Q"] - r.Q) < 1e-9
+
+
+def test_detalle_por_carga_delta():
+    """Carga en Delta: I_f = I_L/sqrt(3), V_f = V_L."""
+    c = CircuitoTrifasico()
+    c.set_fuente(208, 0)
+    c.agregar_carga("Delta", 30 + 40j)
+    r = c.resolver()
+    det = r.cargas[0]
+    assert det["conexion"] == "Delta"
+    assert abs(abs(det["i_fase"]) - abs(det["i_linea"]) / math.sqrt(3)) < 1e-9
+    assert abs(abs(det["v_fase"]) - abs(det["v_linea_fasor"])) < 1e-9
+    # S de la carga igual al total
+    assert abs(det["P"] - r.P) < 1e-9
+
+
+def test_comandos_consulta_variables():
+    """Los comandos de consulta individual funcionan tras resolver."""
+    c = CircuitoTrifasico()
+    _ejecutar_comando(c, "fuente 208")
+    _ejecutar_comando(c, "carga Y 30+40j")
+    _ejecutar_comando(c, "resolver")
+    # no deben lanzar excepciones
+    for cmd in ("variables", "vl", "vf", "il", "if", "s", "detalle 1", "ver"):
+        _ejecutar_comando(c, cmd)
+    # antes de resolver, consultas devuelven mensaje (sin excepcion)
+    c2 = CircuitoTrifasico()
+    _ejecutar_comando(c2, "fuente 208")
+    _ejecutar_comando(c2, "carga Y 30+40j")
+    for cmd in ("vl", "vf", "il", "if", "s", "variables"):
+        _ejecutar_comando(c2, cmd)
 
 
 def test_errores_estado():

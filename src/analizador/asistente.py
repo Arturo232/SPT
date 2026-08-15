@@ -64,6 +64,13 @@ def _fmt(z):
     return _fmt_complex(z)
 
 
+def _fasor(z):
+    """Fasor en forma rectangular + polar."""
+    from .core import rad2deg
+    ang = rad2deg(np.angle(z))
+    return "%s | %.4g angulo %.4g deg" % (_fmt(z), abs(z), ang)
+
+
 # ---------------------------------------------------------------------------
 # Asistente guiado (wizard)
 # ---------------------------------------------------------------------------
@@ -127,6 +134,7 @@ def _ofrecer_exportar(circuito):
 _AYUDA = """
 COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
 --------------------------------------------
+DEFINICION DEL CIRCUITO
   fuente <VL> [angulo]     Define la tension de linea de la fuente.
   linea <R+jX>             Define la impedancia de linea (serie).
   carga <Y|Delta> <R+jX>   Agrega una carga en paralelo (conversion D->Y
@@ -134,9 +142,22 @@ COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
   add <Y|D> <R+jX>         Igual que 'carga'.
   cargas                   Muestra las cargas definidas.
   limpiar                  Elimina todas las cargas.
-  resolver | solve         Resuelve el circuito y muestra el reporte.
-  reporte                  Muestra el ultimo reporte generado.
+
+RESOLUCION
+  resolver | solve         Resuelve el circuito y muestra el reporte completo.
+  variables | todo         Muestra el reporte completo de todas las variables.
+
+CONSULTA DE VARIABLES (tras resolver)
+  vl                       Tensiones de linea (fuente y carga).
+  vf                       Tensiones de fase (fuente y carga).
+  il                       Corriente de linea.
+  if                       Corrientes de fase de cada carga.
+  s | potencia             S, P, Q, |S|, FP y phi totales.
+  detalle <n>              Todas las variables de la carga n.
+
+OTROS
   ver                      Muestra el estado actual del circuito.
+  reporte                  Muestra el ultimo reporte generado.
   ayuda | help             Muestra esta ayuda.
   salir | exit | quit      Termina la consola.
 
@@ -146,6 +167,10 @@ Ejemplos:
   carga Delta 30+40j
   carga Y 20-15j
   resolver
+  vf
+  if
+  detalle 1
+  s
 """
 
 
@@ -250,6 +275,95 @@ def _ejecutar_comando(circuito, linea):
             print("    %-4s Z_fase = %s" % (c["conexion"], _fmt(c["z_fase"])))
         if circuito.z_eq is not None:
             print("  Z_eq calculada = %s" % _fmt(circuito.z_eq))
+        return
+
+    # --- comandos de consulta de variables del circuito resuelto ---
+    if cmd in ("variables", "todo", "reporte-completo"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        print(circuito.reporte())
+        return
+
+    if cmd in ("vl", "vlinea", "tension-linea"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        r = circuito.resultado
+        print("  V_L fuente = %s" % _fasor(r.v_fuente_linea))
+        print("  V_L carga  = %s" % _fasor(r.v_carga * (3 ** 0.5)))
+        return
+
+    if cmd in ("vf", "vfase", "tension-fase"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        r = circuito.resultado
+        print("  V_f fuente = %s" % _fasor(r.v_fuente_fase))
+        print("  V_f carga  = %s" % _fasor(r.v_carga))
+        return
+
+    if cmd in ("il", "icorriente-linea", "corriente-linea"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        print("  I_L = %s  (|I| = %.4f A)" % (_fasor(circuito.resultado.i_linea),
+                                              abs(circuito.resultado.i_linea)))
+        return
+
+    if cmd in ("if", "corriente-fase", "ifase"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        r = circuito.resultado
+        print("  Corrientes de fase por carga:")
+        for c in r.cargas:
+            print("    C%d (%s): I_f = %s  (|I| = %.4f A)"
+                  % (c["id"], c["conexion"], _fasor(c["i_fase"]), abs(c["i_fase"])))
+        return
+
+    if cmd in ("s", "potencia", "poder"):
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        r = circuito.resultado
+        print("  S    = %s" % _fmt(r.s3f))
+        print("  P    = %.4f W" % r.P)
+        print("  Q    = %.4f var" % r.Q)
+        print("  |S|  = %.4f VA" % r.Sabs)
+        print("  FP   = %.4f" % r.fp)
+        print("  phi  = %.4f deg" % r.phi_deg)
+        return
+
+    if cmd in ("detalle", "carga-detalle", "dcarga"):
+        # consultar el detalle de una carga específica
+        if circuito.resultado is None:
+            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            return
+        r = circuito.resultado
+        if len(args) >= 1:
+            try:
+                idx = int(args[0])
+            except ValueError:
+                error_analizador("circuito", "argumentos",
+                                 "Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
+            if idx < 1 or idx > len(r.cargas):
+                error_analizador("circuito", "argumentos",
+                                 "Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
+            c = r.cargas[idx - 1]
+            print("  C%d (%s): Z_fase = %s -> Z_Y = %s"
+                  % (c["id"], c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
+            print("    V_f = %s" % _fasor(c["v_fase"]))
+            print("    V_L = %s" % _fasor(c["v_linea_fasor"]))
+            print("    I_f = %s  (|I| = %.4f A)" % (_fasor(c["i_fase"]), abs(c["i_fase"])))
+            print("    I_L = %s  (|I| = %.4f A)" % (_fasor(c["i_linea"]), abs(c["i_linea"])))
+            print("    S   = %s" % _fmt(c["s3f"]))
+            print("    P   = %.4f W ;  Q = %.4f var ;  |S| = %.4f VA"
+                  % (c["P"], c["Q"], c["Sabs"]))
+            print("    FP  = %.4f (%s), phi = %.4f deg"
+                  % (c["fp"], c["type"], c["phi_deg"]))
+            return
+        print("  Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
         return
 
     error_analizador("circuito", "comandoDesconocido",

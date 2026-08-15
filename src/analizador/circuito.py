@@ -107,9 +107,16 @@ class CircuitoTrifasico:
     def resolver(self):
         """Resuelve el circuito completo.
 
-        Regresa ``SimpleNamespace`` con:
-          z_eq, z_total, i_linea, v_carga (fase), v_carga_linea,
-          s_fase, s3f, P, Q, Sabs, fp, type, phi_deg y el detalle de cada carga.
+        Regresa ``SimpleNamespace`` con todas las variables del circuito
+        trifásico balanceado:
+
+        Fuente: v_fuente_linea, v_fuente_fase, v_linea
+        Línea : z_linea, v_caida_linea
+        Carga : v_carga (fase), v_carga_linea, z_eq, z_total
+        Corrientes: i_linea (fasor) y su magnitud
+        Potencias: s_fase, s3f, P, Q, Sabs, fp, type, phi_deg
+        Detalle por carga: v_fase, v_linea, i_fase, i_linea, s_fase,
+                           s3f, P, Q, Sabs, fp, type, phi_deg, z_fase, z_y
         """
         if not hasattr(self, "v_fuente_fase") or self.v_linea is None:
             error_analizador("circuito", "sinFuente",
@@ -122,38 +129,68 @@ class CircuitoTrifasico:
         z_total = self.z_linea + z_eq
         self.z_total = z_total
 
-        v_fase = self.v_fuente_fase
-        i_linea = v_fase / z_total
-        v_carga = i_linea * z_eq
+        v_fase = self.v_fuente_fase                 # Vf en la fuente (fase a)
+        i_linea = v_fase / z_total                  # IL en el sistema
+        v_carga = i_linea * z_eq                    # Vf en la carga (fase a)
+        v_caida = i_linea * self.z_linea            # caída en la línea
         s_fase = complex_power(v_fase, i_linea)
         s3f = 3 * s_fase
         fp_info = power_factor(s3f)
 
         detalle = []
         for k, carga in enumerate(self.cargas, start=1):
-            i_carga = v_carga / carga["z_y"]
-            s_carga_fase = complex_power(v_carga, i_carga)
+            i_rama = v_carga / carga["z_y"]         # IL que alimenta esa carga
+            v_linea_carga = abs(v_carga) * math.sqrt(3)
+            if carga["conexion"] == "Y":
+                i_fase_carga = i_rama               # IL = If
+                v_fase_carga = v_carga
+                v_linea_carga_fasor = v_carga * math.sqrt(3)
+            else:  # Delta
+                # If = IL*exp(j30)/sqrt(3) ; Vf = VL (tension de linea,
+                # adelanta 30° a la fase de referencia)
+                i_fase_carga = i_rama * np.exp(1j * math.radians(30)) / math.sqrt(3)
+                v_fase_carga = v_carga * math.sqrt(3) * np.exp(1j * math.radians(30))
+                v_linea_carga_fasor = v_carga * math.sqrt(3) * np.exp(1j * math.radians(30))
+            s_carga_fase = complex_power(v_fase_carga, i_fase_carga)
+            s_carga_3f = 3 * s_carga_fase
+            fp_carga = power_factor(s_carga_3f)
             detalle.append({
                 "id": k,
                 "conexion": carga["conexion"],
                 "z_fase": carga["z_fase"],
                 "z_y": carga["z_y"],
-                "i_fase": i_carga,
+                "v_fase": v_fase_carga,
+                "v_linea": v_linea_carga,
+                "v_linea_fasor": v_linea_carga_fasor,
+                "i_fase": i_fase_carga,
+                "i_linea": i_rama,
                 "s_fase": s_carga_fase,
-                "s3f": 3 * s_carga_fase,
-                "P": np.real(3 * s_carga_fase),
-                "Q": np.imag(3 * s_carga_fase),
+                "s3f": s_carga_3f,
+                "P": np.real(s_carga_3f),
+                "Q": np.imag(s_carga_3f),
+                "Sabs": fp_carga.Sabs,
+                "fp": fp_carga.fp,
+                "type": fp_carga.type,
+                "phi_deg": rad2deg(np.angle(s_carga_3f)),
             })
 
         result = SimpleNamespace(
+            # fuente
             v_linea=self.v_linea,
+            v_fuente_linea=polar_to_complex(self.v_linea,
+                                            rad2deg(np.angle(self.v_fuente_fase))),
             v_fuente_fase=v_fase,
+            # línea
             z_linea=self.z_linea,
-            z_eq=z_eq,
-            z_total=z_total,
-            i_linea=i_linea,
+            v_caida_linea=v_caida,
+            # carga
             v_carga=v_carga,
             v_carga_linea=abs(v_carga) * math.sqrt(3),
+            z_eq=z_eq,
+            z_total=z_total,
+            # corrientes
+            i_linea=i_linea,
+            # potencias
             s_fase=s_fase,
             s3f=s3f,
             P=np.real(s3f),
@@ -171,39 +208,69 @@ class CircuitoTrifasico:
     # Reporte
     # ------------------------------------------------------------------
     def reporte(self):
-        """Texto legible con los resultados del circuito resuelto."""
+        """Texto legible con todas las variables del circuito resuelto.
+
+        Muestra cada fasor en forma rectangular y polar, el detalle de cada
+        carga (Vf, VL, If, IL, S, P, Q, FP según su conexión) y los totales.
+        """
         r = self.resultado
         if r is None:
             error_analizador("circuito", "sinResolver",
                              "Error: resuelva el circuito antes de generar el reporte.")
         lineas = [
             "",
-            "===== REPORTE DEL CIRCUITO TRIFASICO =====",
-            "Fuente:  VL = %g V, fase a = %.4f V (referencia)"
-            % (r.v_linea, abs(r.v_fuente_fase)),
-            "Linea:   Z = %s" % _fmt_complex(r.z_linea),
-            "--------------------------------------------",
-            "Cargas en paralelo (equivalente por fase en Y):",
+            "===== REPORTE DEL CIRCUITO TRIFASICO (BALANCEADO) =====",
+            "",
+            "--- FUENTE ---",
+            "  Tension de linea   V_L   = %s" % _fmt_fasor(r.v_fuente_linea),
+            "  Tension de fase    V_f   = %s" % _fmt_fasor(r.v_fuente_fase),
+            "",
+            "--- LINEA DE TRANSMISION ---",
+            "  Impedancia serie   Z_L   = %s" % _fmt_complex(r.z_linea),
+            "  Caida de tension   dV_L  = %s" % _fmt_fasor(r.v_caida_linea),
+            "",
+            "--- CARGAS EN PARALELO (detalle) ---",
         ]
         for k, c in enumerate(r.cargas, start=1):
             lineas.append(
-                "  C%d: %-6s Z_fase = %s  ->  Z_Y = %s"
+                "  C%d (%s): Z_fase = %s  ->  Z_Y = %s"
                 % (k, c["conexion"], _fmt_complex(c["z_fase"]), _fmt_complex(c["z_y"])))
+            lineas.append(
+                "      V_f = %s ;  V_L = %s"
+                % (_fmt_fasor(c["v_fase"]), _fmt_fasor(c["v_linea_fasor"])))
+            lineas.append(
+                "      I_f = %s ;  I_L = %s"
+                % (_fmt_fasor(c["i_fase"]), _fmt_fasor(c["i_linea"])))
+            lineas.append(
+                "      S   = %s  (P = %.4f W, Q = %.4f var, |S| = %.4f VA)"
+                % (_fmt_complex(c["s3f"]), c["P"], c["Q"], c["Sabs"]))
+            lineas.append(
+                "      FP  = %.4f (%s), phi = %.4f deg"
+                % (c["fp"], _estado(c["type"]), c["phi_deg"]))
         lineas += [
-            "--------------------------------------------",
-            "Impedancia equivalente de la carga:  Z_eq = %s" % _fmt_complex(r.z_eq),
-            "Impedancia total (linea + carga):    Z_total = %s" % _fmt_complex(r.z_total),
-            "Corriente de linea:                  I_L = %s  (|I| = %.4f A)"
-            % (_fmt_complex(r.i_linea), abs(r.i_linea)),
-            "Tension en la carga (fase):          V_f = %s  (|V| = %.4f V)"
-            % (_fmt_complex(r.v_carga), abs(r.v_carga)),
-            "Tension de linea en la carga:        V_L = %.4f V" % r.v_carga_linea,
-            "--------------------------------------------",
-            "Potencia compleja total:  S = %s" % _fmt_complex(r.s3f),
+            "",
+            "--- CIRCUITO EQUIVALENTE ---",
+            "  Impedancia equivalente de la carga   Z_eq     = %s"
+            % _fmt_complex(r.z_eq),
+            "  Impedancia total (linea + carga)     Z_total  = %s"
+            % _fmt_complex(r.z_total),
+            "",
+            "--- CORRIENTES ---",
+            "  Corriente de linea     I_L = %s  (|I| = %.4f A)"
+            % (_fmt_fasor(r.i_linea), abs(r.i_linea)),
+            "",
+            "--- TENSIONES EN LA CARGA ---",
+            "  Tension de fase        V_f = %s  (|V| = %.4f V)"
+            % (_fmt_fasor(r.v_carga), abs(r.v_carga)),
+            "  Tension de linea       V_L = %.4f V" % r.v_carga_linea,
+            "",
+            "--- POTENCIA (trifasica total) ---",
+            "  S = %s" % _fmt_complex(r.s3f),
             "  P   = %.4f W" % r.P,
             "  Q   = %.4f var" % r.Q,
             "  |S| = %.4f VA" % r.Sabs,
             "  FP  = %.4f (%s)" % (r.fp, _estado(r.type)),
+            "  phi = %.4f deg" % r.phi_deg,
             "",
         ]
         return "\n".join(lineas)
@@ -227,3 +294,9 @@ def _fmt_complex(z):
     if b >= 0:
         return "%.4g + j%.4g" % (a, b)
     return "%.4g - j%.4g" % (a, -b)
+
+
+def _fmt_fasor(z):
+    """Fasor en forma rectangular + polar: 'a+jb | M angulo theta deg'."""
+    ang = rad2deg(np.angle(z))
+    return "%s | %.4g angulo %.4g deg" % (_fmt_complex(z), abs(z), ang)
