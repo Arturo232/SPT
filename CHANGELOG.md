@@ -3,6 +3,52 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es/1.0.0/) y
 versionado [SemVer](https://semver.org/lang/es/).
 
+## [1.3.0] - 2026-08-15
+
+### Añadido
+
+- Consola de comandos como **opción `C` del menú principal** (primera
+  opción recomendada); el asistente guiado queda como opción `A`.
+- **Circuito monofásico (1φ)** en la consola (`CircuitoMonofasico`):
+  fuente, línea y cargas en paralelo, sin conversión Y/Δ ni potencias ×3.
+- **Modos de trabajo** en la consola:
+  - `modo mono` / `modo tri` cambian el circuito activo.
+  - `resolver mono` / `resolver tri` / `resolver` resuelven en el modo
+    indicado o el actual.
+  - Cada modo guarda su propio circuito (fuente, línea y cargas).
+- Guía completa de la consola en `docs/consola.md`.
+
+### Cambiado
+
+- El comando `fuente` acepta el **fasor completo con ángulo**
+  (`fuente 120@30`, `fuente 120 angulo 30`, `fuente 96.4+64.3j`), además
+  del formato magnitud + ángulo por separado.
+- El parser de impedancias y fasores reconoce notación **polar en todas sus
+  formas**: `M angulo A`, `M/A`, `M∠A`, `M<A`, `M exp(A)`, `M e^(A)`,
+  `M cis(A)` y los separadores de teclado `M@A` y `M a A` (sin símbolo de
+  ángulo). Ángulos en grados, con o sin `deg`/`°`.
+
+### Corregido
+
+- La consola es tolerante a errores: captura comandos mal escritos o datos
+  faltantes, muestra un mensaje informativo y **no se detiene**.
+- Comando desconocido con typo sugiere el comando correcto.
+- `resolver` y `ver` indican qué datos faltan para poder resolver.
+
+## [1.2.0] - 2026-08-15
+
+### Añadido
+
+- Reporte completo con todas las variables del circuito trifásico: `Vf`/`VL`
+  de la fuente, caída en la línea, y por cada carga `Vf`, `VL`, `If`, `IL`,
+  `S`, `P`, `Q`, `|S|`, `FP` y `phi` según su conexión (Y o Delta).
+- Comandos de consulta individual: `vl`, `vf`, `il`, `if`, `s|potencia`,
+  `detalle <n>` y `variables|todo`.
+- Entradas flexibles: fuente por voltaje de fase (`fuente 120 fase`),
+  corriente como dato (`corriente <I>`), tensión en la carga como dato
+  (`vcarga <V>`) y carga por potencia (`pcarga <S>`).
+- Impedancias en forma polar (`M angulo A`, `M/A`) y por R y X separados.
+
 ## [1.1.0] - 2026-08-15
 
 ### Añadido
