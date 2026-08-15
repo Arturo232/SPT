@@ -251,6 +251,27 @@ def test_comando_fuente_fase():
     assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 15) < 1e-9
 
 
+def test_comando_fuente_con_fasor():
+    """La fuente acepta el voltaje con angulo (notacion polar completa)."""
+    c = CircuitoTrifasico()
+    # VL con angulo usando arroba
+    _ejecutar_comando(c, "fuente 208@30")
+    assert abs(abs(c.v_fuente_fase) - 208 / math.sqrt(3)) < 1e-6
+    assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 30) < 1e-6
+    # VL con angulo usando la palabra 'angulo'
+    _ejecutar_comando(c, "fuente 208 angulo 45")
+    assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 45) < 1e-6
+    # Vf con angulo y dato 'fase': 120@-10
+    _ejecutar_comando(c, "fuente 120@-10 fase")
+    assert abs(abs(c.v_fuente_fase) - 120) < 1e-6
+    assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) + 10) < 1e-6
+    # fasor rectangular con parte imaginaria: 96.4+64.3j se interpreta como
+    # voltaje de LINEA, asi que la fase se divide por sqrt(3)
+    _ejecutar_comando(c, "fuente 96.4+64.3j")
+    esperado = (96.4 + 64.3j) / math.sqrt(3)
+    assert abs(c.v_fuente_fase - esperado) < 1e-6
+
+
 def test_comandos_aceptan_polar():
     """Los comandos de la consola aceptan notacion polar con simbolo ∠."""
     c = CircuitoTrifasico()

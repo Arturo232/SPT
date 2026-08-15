@@ -88,6 +88,13 @@ def _polar(mag, ang, original):
     return polar_to_complex(mag, ang)
 
 
+def _tiene_angulo(texto):
+    """True si el texto parece un fasor con angulo (polar) o imaginario."""
+    t = texto.strip().lower()
+    return any(marca in t for marca in ("angulo", "/", "∠", "<", "@",
+                                        "exp", "cis", "e^", "j", "i"))
+
+
 def parse_impedancia(args):
     """Interpreta una impedancia desde los argumentos del comando.
 
@@ -244,6 +251,9 @@ DEFINICION DEL CIRCUITO
                      Define la tension de la fuente. Por defecto se
                      interpreta como tension de LINEA (VL); use 'fase' si
                      el dato es la tension de fase (Vf).
+                     Tambien acepta el fasor completo con angulo:
+                       fuente 120@30        fuente 120 angulo 30
+                       fuente 120/30        fuente 96.4+64.3j
                      Ej: fuente 208  |  fuente 120 fase  |  fuente 120 f 0
   corriente <I>      Define la corriente de la fuente como dato (I_L o I_f);
                      la fuente se deriva.  Ej: corriente 30-40j
@@ -363,7 +373,39 @@ def _ejecutar_comando(circuito, linea):
     if cmd in ("fuente", "vfuente", "set-fuente"):
         if len(args) < 1:
             error_analizador("circuito", "argumentos",
-                             "Uso: fuente <magnitud> [linea|fase] [angulo]")
+                             "Uso: fuente <magnitud> [linea|fase] [angulo]  |  fuente <fasor>")
+        # Detectar la palabra 'angulo' como separador: fuente 208 angulo 45
+        if "angulo" in [a.lower() for a in args]:
+            partes_txt = " ".join(args)
+            m = re.fullmatch(r"([+-]?[\d.]+)\s+angulo\s+([+-]?[\d.]+)(?:\s+(fase|linea|f|l))?",
+                             partes_txt, re.IGNORECASE)
+            if m:
+                mag = float(m.group(1))
+                angulo = float(m.group(2))
+                dato = "fase" if m.group(3) and m.group(3).lower() in ("fase", "f") else "linea"
+                circuito.set_fuente(mag, angulo, dato)
+                print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
+                      % (circuito.v_linea, abs(circuito.v_fuente_fase),
+                         _fasor(circuito.v_fuente_fase)))
+                return
+        # Si el primer argumento es un fasor con angulo o imaginario:
+        # fuente 120@30, fuente 120/30, fuente 120<30, fuente 96.4+64.3j
+        if _tiene_angulo(args[0]):
+            try:
+                v_fasor = parse_complejo(args[0])
+            except AnalizadorError:
+                error_analizador("circuito", "argumentos",
+                                 "El valor de la fuente debe ser un numero o un fasor (ej. 'fuente 208', 'fuente 120 fase', 'fuente 120@30'). Valor: '{0}'", args[0])
+            mag = abs(v_fasor)
+            angulo = np.rad2deg(np.angle(v_fasor))
+            dato = "linea"
+            if len(args) > 1 and args[1].lower() in ("fase", "f", "phase", "vf"):
+                dato = "fase"
+            circuito.set_fuente(mag, angulo, dato)
+            print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
+                  % (circuito.v_linea, abs(circuito.v_fuente_fase),
+                     _fasor(circuito.v_fuente_fase)))
+            return
         try:
             v = float(args[0])
         except ValueError:
