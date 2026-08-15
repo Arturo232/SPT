@@ -21,6 +21,40 @@ def test_parse_complejo():
                   "analizador:circuito:complejoInvalido")
 
 
+def test_parse_complejo_polar_variantes():
+    """Notacion compleja/polar en todas sus formas (angulos en grados)."""
+    import cmath
+    esperado = 30 * (math.cos(math.radians(53.13)) + 1j * math.sin(math.radians(53.13)))
+    # M angulo A
+    assert abs(parse_complejo("30 angulo 53.13") - esperado) < 1e-6
+    # M / A
+    assert abs(parse_complejo("30/53.13") - esperado) < 1e-6
+    # M∠A (simbolo de angulo)
+    assert abs(parse_complejo("30∠53.13") - esperado) < 1e-6
+    # M < A
+    assert abs(parse_complejo("30<53.13") - esperado) < 1e-6
+    # angulo con sufijo deg o grados
+    assert abs(parse_complejo("30 angulo 53.13 deg") - esperado) < 1e-6
+    assert abs(parse_complejo("30∠53.13°") - esperado) < 1e-6
+    # exponencial
+    assert abs(parse_complejo("30 exp(53.13)") - esperado) < 1e-6
+    assert abs(parse_complejo("30 e^(53.13)") - esperado) < 1e-6
+    assert abs(parse_complejo("30 cis(53.13)") - esperado) < 1e-6
+    # angulos negativos
+    neg = 50 * (math.cos(math.radians(-36.87)) + 1j * math.sin(math.radians(-36.87)))
+    assert abs(parse_complejo("50∠-36.87") - neg) < 1e-6
+    assert abs(parse_complejo("50/-36.87") - neg) < 1e-6
+
+
+def test_parse_complejo_rectangular_variantes():
+    """Notacion rectangular: R+jX, jX, R, y con i en vez de j."""
+    assert abs(parse_complejo("10 + j5") - (10 + 5j)) < 1e-9
+    assert abs(parse_complejo("10+5i") - (10 + 5j)) < 1e-9
+    assert abs(parse_complejo("10 - j5") - (10 - 5j)) < 1e-9
+    assert abs(parse_complejo("j5") - 5j) < 1e-9
+    assert abs(parse_complejo("5j") - 5j) < 1e-9
+
+
 def test_conversion_delta_y_transparente():
     c = CircuitoTrifasico()
     c.agregar_carga("Delta", 30 + 40j)
@@ -199,6 +233,20 @@ def test_comando_fuente_fase():
     _ejecutar_comando(c, "fuente 208 15")
     assert abs(c.v_linea - 208) < 1e-9
     assert abs(np.rad2deg(np.angle(c.v_fuente_fase)) - 15) < 1e-9
+
+
+def test_comandos_aceptan_polar():
+    """Los comandos de la consola aceptan notacion polar con simbolo ∠."""
+    c = CircuitoTrifasico()
+    _ejecutar_comando(c, "fuente 208")
+    _ejecutar_comando(c, "linea 2∠45")          # 2∠45 = 1.414 + j1.414
+    assert abs(c.z_linea - (2 * math.cos(math.radians(45)) + 1j * 2 * math.sin(math.radians(45)))) < 1e-9
+    _ejecutar_comando(c, "carga Y 50/30")       # 50/30
+    z_esp = 50 * (math.cos(math.radians(30)) + 1j * math.sin(math.radians(30)))
+    assert abs(c.cargas[0]["z_fase"] - z_esp) < 1e-9
+    _ejecutar_comando(c, "corriente 5<30")      # 5∠30
+    i_esp = 5 * (math.cos(math.radians(30)) + 1j * math.sin(math.radians(30)))
+    assert abs(c.i_fuente - i_esp) < 1e-9
 
 
 def test_errores_estado():

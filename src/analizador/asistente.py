@@ -24,44 +24,63 @@ def parse_complejo(texto):
 
     Formatos aceptados:
       - Rectangular: ``R+jX``, ``R-jX``, ``jX``, ``10``, ``10 + j5``.
-      - Polar: ``M angulo A`` (ej. ``30 angulo 53.13``) o ``M/A``.
+      - Polar (angulos en grados):
+          ``M angulo A``   ej. ``30 angulo 53.13``
+          ``M/A``          ej. ``50/30``
+          ``M∠A``          ej. ``30∠53.13``  (simbolo angulo)
+          ``M<A``          ej. ``30<53.13``
+          ``M exp(A)``     ej. ``50 exp(30)``  (tambien e^, cis)
+      - El angulo puede llevar sufijo ``deg`` o ``°``.
     Lanza ``analizador:circuito:complejoInvalido`` si no puede interpretarlo.
     """
-    t = texto.strip().lower().replace("i", "j")
+    t = texto.strip().lower().replace("°", "").replace("deg", "")
+    t_sin = t.replace(" ", "")
 
-    # forma polar: "M angulo A" o "M / A"
-    if "angulo" in t:
-        partes = re.split(r"\s+angulo\s+", t)
-        if len(partes) == 2:
-            mag = _a_float(partes[0].strip(), texto)
-            ang = _a_float(partes[1].strip(), texto)
-            return _polar(mag, ang, texto)
-    m = re.fullmatch(r"\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*/\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*", t)
+    # forma polar con separadores: "M/A", "M∠A", "M<A" (con la i de "cis"
+    # intacta: no convertimos a j en este paso)
+    m = re.fullmatch(r"([+-]?[\d.]+(?:e[+-]?\d+)?)[/∠<]([+-]?[\d.]+(?:e[+-]?\d+)?)", t_sin)
     if m:
         return _polar(float(m.group(1)), float(m.group(2)), texto)
 
+    # forma polar con palabra "angulo": "M angulo A"
+    m = re.fullmatch(r"([+-]?[\d.]+(?:e[+-]?\d+)?)angulo([+-]?[\d.]+(?:e[+-]?\d+)?)", t_sin)
+    if m:
+        return _polar(float(m.group(1)), float(m.group(2)), texto)
+
+    # forma exponencial: "M exp(A)", "M e^(A)", "M cis(A)"
+    m = re.fullmatch(
+        r"([+-]?[\d.]+(?:e[+-]?\d+)?)(?:exp|e\^|cis)\(?\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*\)?",
+        t_sin)
+    if m:
+        return _polar(float(m.group(1)), float(m.group(2)), texto)
+
+    # --- formatos rectangulares: aqui si convertimos i -> j ---
+    s = t.replace("i", "j").replace(" ", "")
     try:
-        return complex(t.replace(" ", ""))
+        return complex(s)
     except ValueError:
         pass
     # forma R + jX  (la j delante de la parte imaginaria)
-    s = t.replace(" ", "")
     m = re.fullmatch(r"([+-]?[\d.]+(?:e[+-]?\d+)?)([+-])j([\d.]+(?:e[+-]?\d+)?)", s)
     if m:
         r = float(m.group(1))
         x = float(m.group(3))
         signo = -1 if m.group(2) == "-" else 1
         return r + 1j * signo * x
-    # jX puro (solo parte imaginaria), p. ej. "j5" o "4j"
-    if t.endswith("j"):
-        parte = t[:-1]
+    # jX puro con la j al inicio (j5) o al final (5j)
+    m = re.fullmatch(r"([+-]?)j([\d.]+(?:e[+-]?\d+)?)", s)
+    if m:
+        signo = -1 if m.group(1) == "-" else 1
+        return 1j * signo * _a_float(m.group(2), texto)
+    if s.endswith("j"):
+        parte = s[:-1]
         if parte in ("", "+"):
             parte = "1"
         elif parte == "-":
             parte = "-1"
         return 1j * _a_float(parte, texto)
     error_analizador("circuito", "complejoInvalido",
-                     "Error: no pude interpretar el numero complejo. Use R+jX (ej. 10+5j) o polar 'M angulo A' (ej. 30 angulo 53.13). Valor: {0}", texto)
+                     "Error: no pude interpretar el numero complejo. Use R+jX (ej. 10+5j), polar 'M angulo A' (ej. 30 angulo 53.13) o 'M/A' (ej. 30/53.13). Valor: {0}", texto)
 
 
 def _polar(mag, ang, original):
@@ -211,8 +230,10 @@ _AYUDA = """
 COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
 --------------------------------------------
 FORMATO DE IMPEDANCIAS Y FASORES (en cualquier comando):
-  Rectangular : R+jX  (ej. 10+5j, 2-8j, 4j)
-  Polar       : M angulo A  o  M/A  (ej. 30 angulo 53.13, 50/30)
+  Rectangular : R+jX  (ej. 10+5j, 2-8j, 4j, j5)  o  R+iX (tambien con i)
+  Polar       : M angulo A  |  M/A  |  M∠A  |  M<A  |  M exp(A)  |  M cis(A)
+                (angulos en grados, con o sin sufijo deg/°)
+                ej. 30 angulo 53.13, 50/30, 30∠53.13, 30<53.13, 50 exp(30)
   R y X sueltos: dos numeros (ej. 10 20)
 
 DEFINICION DEL CIRCUITO
