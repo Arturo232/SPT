@@ -46,6 +46,22 @@ def test_parse_complejo_polar_variantes():
     assert abs(parse_complejo("50/-36.87") - neg) < 1e-6
 
 
+def test_parse_complejo_polar_sin_simbolos():
+    """Polar sin simbolos especiales del teclado: @ (arroba) y a (angulo)."""
+    import cmath
+    esperado = 30 * (math.cos(math.radians(53.13)) + 1j * math.sin(math.radians(53.13)))
+    # arroba: 30@53.13
+    assert abs(parse_complejo("30@53.13") - esperado) < 1e-6
+    # letra 'a' de angulo: 30a53.13
+    assert abs(parse_complejo("30a53.13") - esperado) < 1e-6
+    # arroba con espacios: 30 @ 53.13
+    assert abs(parse_complejo("30 @ 53.13") - esperado) < 1e-6
+    # 'a' con espacios: 30 a 53.13
+    assert abs(parse_complejo("30 a 53.13") - esperado) < 1e-6
+    # no rompe el caso 'angulo'
+    assert abs(parse_complejo("30 angulo 53.13") - esperado) < 1e-6
+
+
 def test_parse_complejo_rectangular_variantes():
     """Notacion rectangular: R+jX, jX, R, y con i en vez de j."""
     assert abs(parse_complejo("10 + j5") - (10 + 5j)) < 1e-9

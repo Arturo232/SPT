@@ -36,9 +36,9 @@ def parse_complejo(texto):
     t = texto.strip().lower().replace("°", "").replace("deg", "")
     t_sin = t.replace(" ", "")
 
-    # forma polar con separadores: "M/A", "M∠A", "M<A" (con la i de "cis"
-    # intacta: no convertimos a j en este paso)
-    m = re.fullmatch(r"([+-]?[\d.]+(?:e[+-]?\d+)?)[/∠<]([+-]?[\d.]+(?:e[+-]?\d+)?)", t_sin)
+    # forma polar con separadores: "M/A", "M∠A", "M<A", "M@A", "M a A"
+    # (la "a" de angulo no se confunde con "angulo", que va mas abajo)
+    m = re.fullmatch(r"([+-]?[\d.]+(?:e[+-]?\d+)?)[/∠<@a]([+-]?[\d.]+(?:e[+-]?\d+)?)", t_sin)
     if m:
         return _polar(float(m.group(1)), float(m.group(2)), texto)
 
@@ -232,6 +232,9 @@ COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
 FORMATO DE IMPEDANCIAS Y FASORES (en cualquier comando):
   Rectangular : R+jX  (ej. 10+5j, 2-8j, 4j, j5)  o  R+iX (tambien con i)
   Polar       : M angulo A  |  M/A  |  M∠A  |  M<A  |  M exp(A)  |  M cis(A)
+                Si no tiene el simbolo de angulo, use:
+                  M@A  (arroba)   ej. 30@53.13
+                  M a A (letra a) ej. 30a53.13   o   30 a 53.13
                 (angulos en grados, con o sin sufijo deg/°)
                 ej. 30 angulo 53.13, 50/30, 30∠53.13, 30<53.13, 50 exp(30)
   R y X sueltos: dos numeros (ej. 10 20)
