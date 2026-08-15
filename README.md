@@ -1,10 +1,12 @@
-# Analizador de Sistemas de Potencia (Python)
+# SPT — Sistemas de Potencia en Terminal (Python)
 
-Port del proyecto MATLAB `SEP` a Python: analizador académico modular de
-sistemas de potencia (circuitos monofásicos, potencia compleja, corrección
-del factor de potencia, flujo de potencia, sistemas trifásicos, p.u.,
-transformadores, flujo de carga N-barras, componentes simétricas,
-cortocircuitos, máquinas eléctricas y estabilidad).
+Consola de comandos eléctricos: port del proyecto MATLAB `SEP` a Python.
+Analizador académico modular de sistemas de potencia (circuitos
+monofásicos, potencia compleja, corrección del factor de potencia, flujo de
+potencia, sistemas trifásicos, p.u., transformadores, flujo de carga
+N-barras, componentes simétricas, cortocircuitos, máquinas eléctricas y
+estabilidad), con un entorno de resolución de circuitos trifásicos
+balanceados.
 
 ## Instalación
 
