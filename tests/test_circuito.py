@@ -205,8 +205,13 @@ def test_errores_estado():
     c = CircuitoTrifasico()
     raises_codigo(lambda: c.impedancia_equivalente(),
                   "analizador:circuito:sinCargas")
-    raises_codigo(lambda: c.resolver(), "analizador:circuito:sinFuente")
-    raises_codigo(lambda: c.reporte(), "analizador:circuito:sinResolver")
+    # sin cargas: error sinCargas antes que sinDatos
+    raises_codigo(lambda: c.resolver(), "analizador:circuito:sinCargas")
+    # con carga pero sin fuente/corriente/tension: error sinDatos
+    c.agregar_carga("Y", 30 + 40j)
+    raises_codigo(lambda: c.resolver(), "analizador:circuito:sinDatos")
+    c2 = CircuitoTrifasico()
+    raises_codigo(lambda: c2.reporte(), "analizador:circuito:sinResolver")
 
 
 def test_consola_comandos():
@@ -237,3 +242,87 @@ def test_consola_ayuda_y_salida():
     _ejecutar_comando(c, "ayuda")
     _ejecutar_comando(c, "ver")
     assert c is not None
+
+
+def test_parse_impedancia_polar():
+    """Impedancia en forma polar: M angulo A."""
+    from analizador.asistente import parse_impedancia
+    import cmath
+    z = parse_impedancia(["30", "angulo", "53.13"])
+    esperado = 30 * (math.cos(math.radians(53.13)) + 1j * math.sin(math.radians(53.13)))
+    assert abs(z - esperado) < 1e-6
+    z2 = parse_impedancia(["50", "/", "30"])
+    esperado2 = 50 * (math.cos(math.radians(30)) + 1j * math.sin(math.radians(30)))
+    assert abs(z2 - esperado2) < 1e-6
+
+
+def test_parse_impedancia_rx():
+    """Impedancia por R y X separados."""
+    from analizador.asistente import parse_impedancia
+    z = parse_impedancia(["10", "20"])
+    assert abs(z - (10 + 20j)) < 1e-9
+    z2 = parse_impedancia(["-0.2", "0.05"])
+    assert abs(z2 - (-0.2 + 0.05j)) < 1e-9
+
+
+def test_corriente_como_dato():
+    """Con la corriente dada, la fuente se deriva: V_f = I * Z_total."""
+    c = CircuitoTrifasico()
+    c.set_corriente(5)  # I_L = 5 A angulo 0
+    c.set_linea(0j)
+    c.agregar_carga("Y", 30 + 40j)
+    r = c.resolver()
+    # Z_eq = 30+40j, I = 5 -> V_f = 150 + j200
+    assert abs(r.v_fuente_fase - (150 + 200j)) < 1e-9
+    assert abs(abs(r.i_linea) - 5) < 1e-9
+    # S = V*conj(I) = (150+j200)*5 = 750 + j1000 por fase -> x3
+    assert abs(r.P - 2250) < 1e-6
+
+
+def test_vcarga_como_dato():
+    """Con la tension en la carga dada, la fuente se deriva."""
+    c = CircuitoTrifasico()
+    c.set_v_carga(110 - 20j)
+    c.set_linea(2 + 4j)
+    c.agregar_carga("Y", 30 + 40j)
+    r = c.resolver()
+    # I = V_carga / Z_eq = (110-20j)/(30+40j) = 1 - 2j
+    assert abs(r.i_linea - (1 - 2j)) < 1e-9
+    # V_fuente = V_carga + I*Z_linea = (110-20j) + (1-2j)(2+4j)
+    esperado = (110 - 20j) + (1 - 2j) * (2 + 4j)
+    assert abs(r.v_fuente_fase - esperado) < 1e-9
+
+
+def test_carga_por_potencia():
+    """Carga por potencia S -> impedancia Z = |V|^2 / conj(S_fase)."""
+    c = CircuitoTrifasico()
+    c.set_fuente(200, 0, "fase")  # V_L = 200*sqrt(3), V_f = 200
+    c.agregar_carga_por_potencia("Y", 1200 + 1600j)
+    # S_fase = (1200+1600j)/3 ; V_f = 200 ; Z = |200|^2 / conj(S_fase)
+    s_fase = (1200 + 1600j) / 3
+    z_esp = (200 ** 2) / np.conjugate(s_fase)
+    assert abs(c.cargas[0]["z_fase"] - z_esp) < 1e-6
+    assert c.cargas[0]["por_potencia"] is True
+
+
+def test_comandos_variantes():
+    c = CircuitoTrifasico()
+    _ejecutar_comando(c, "corriente 5")
+    assert abs(c.i_fuente - 5) < 1e-9
+    _ejecutar_comando(c, "carga Y 30 40")        # R y X separados
+    assert abs(c.cargas[0]["z_fase"] - (30 + 40j)) < 1e-9
+    _ejecutar_comando(c, "linea 2+4j")
+    _ejecutar_comando(c, "resolver")
+    assert c.resultado is not None
+
+    # vcarga y pcarga
+    c2 = CircuitoTrifasico()
+    _ejecutar_comando(c2, "vcarga 110-20j")
+    assert abs(c2.v_carga_dato - (110 - 20j)) < 1e-9
+    _ejecutar_comando(c2, "carga Y 30+40j")
+    _ejecutar_comando(c2, "resolver")
+
+    c3 = CircuitoTrifasico()
+    _ejecutar_comando(c3, "fuente 200 fase")
+    _ejecutar_comando(c3, "pcarga Y 1200+1600j")
+    assert c3.cargas[0]["por_potencia"] is True

@@ -78,6 +78,8 @@ def mensajes() -> dict:
         "analizador:circuito:complejoInvalido": "Error: no pude interpretar el numero complejo. Use el formato R+jX (ej. 10+5j).",
         "analizador:circuito:argumentos": "Error: argumentos insuficientes para el comando.",
         "analizador:circuito:datoFuenteInvalido": "Error: el tipo de dato de la fuente debe ser 'linea' o 'fase'.",
+        "analizador:circuito:sinDatos": "Error: defina al menos uno de: tension de la fuente, corriente, o tension en la carga.",
+        "analizador:circuito:sinTension": "Error: defina la tension de la fuente o el voltaje nominal de la carga antes de usar potencia.",
     }
     return catalogo
 

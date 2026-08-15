@@ -44,6 +44,9 @@ class CircuitoTrifasico:
         self.z_eq = None
         self.z_total = None
         self.resultado = None
+        self.v_fuente_fase = None
+        self.i_fuente = None        # corriente de fuente conocida (fasor)
+        self.v_carga_dato = None    # tension en la carga conocida (fasor)
 
     # ------------------------------------------------------------------
     # Configuración del estado
@@ -72,12 +75,44 @@ class CircuitoTrifasico:
                              "Error: el tipo de dato debe ser 'linea' o 'fase'. Valor: {0}", dato)
         self.v_linea = v_linea
         self.v_fuente_fase = polar_to_complex(v_fase, angulo_deg)
+        self.i_fuente = None
+        self.v_carga_dato = None
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def set_corriente(self, i_fuente):
+        """Define la corriente de la fuente como dato (fasor, ej. ``30-40j``
+        o ``50 angulo -53.13``). La fuente y las tensiones se derivan."""
+        validate_input("numeric", i_fuente, "I")
+        validate_input("nonzero", i_fuente, "I")
+        self.i_fuente = i_fuente
+        self.v_fuente_fase = None
+        self.v_linea = None
+        self.v_carga_dato = None
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def set_v_carga(self, v_carga):
+        """Define la tensión en la carga como dato (fasor). La corriente y
+        la fuente se derivan del circuito."""
+        validate_input("numeric", v_carga, "Vcarga")
+        validate_input("nonzero", v_carga, "Vcarga")
+        self.v_carga_dato = v_carga
+        self.i_fuente = None
+        self.v_fuente_fase = None
+        self.v_linea = None
+        self.z_eq = None
+        self.z_total = None
         return self
 
     def set_linea(self, z_linea):
         """Define la impedancia de línea en serie [ohm]."""
         validate_input("numeric", z_linea, "Zlinea")
         self.z_linea = z_linea
+        self.z_eq = None
+        self.z_total = None
         return self
 
     def agregar_carga(self, conexion, z_fase):
@@ -95,8 +130,47 @@ class CircuitoTrifasico:
             "conexion": c,
             "z_fase": z_fase,
             "z_y": z_y,
+            "por_potencia": False,
         })
         # invalidar resultados previos
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def agregar_carga_por_potencia(self, conexion, s_total, v_nominal=None):
+        """Agrega una carga definida por su potencia compleja total.
+
+        ``conexion`` es 'Y' o 'Delta'; ``s_total`` es la potencia trifásica
+        [VA]; ``v_nominal`` es la tensión de línea nominal de la carga [V]
+        (por defecto se usa la tensión de la fuente, o la tensión en la
+        carga si fue definida). Se convierte a impedancia equivalente:
+          Z_fase = |V_fase|^2 / conj(S_fase)
+        """
+        validate_input("numeric", s_total, "S")
+        validate_input("nonzero", s_total, "S")
+        c = normalizar_conexion(conexion)
+        if v_nominal is None:
+            if self.v_carga_dato is not None:
+                v_nominal = abs(self.v_carga_dato) * math.sqrt(3)
+            elif self.v_linea is not None:
+                v_nominal = self.v_linea
+            else:
+                error_analizador("circuito", "sinTension",
+                                 "Error: defina la tension de la fuente o el voltaje nominal de la carga antes de usar potencia.")
+        s_fase = s_total / 3
+        if c == "Y":
+            v_fase = v_nominal / math.sqrt(3)
+        else:
+            v_fase = v_nominal
+        z_fase = (abs(v_fase) ** 2) / np.conjugate(s_fase)
+        self.cargas.append({
+            "conexion": c,
+            "z_fase": z_fase,
+            "z_y": z_fase / 3 if c == "Delta" else z_fase,
+            "por_potencia": True,
+            "s_total": s_total,
+            "v_nominal": v_nominal,
+        })
         self.z_eq = None
         self.z_total = None
         return self
@@ -137,9 +211,6 @@ class CircuitoTrifasico:
         Detalle por carga: v_fase, v_linea, i_fase, i_linea, s_fase,
                            s3f, P, Q, Sabs, fp, type, phi_deg, z_fase, z_y
         """
-        if not hasattr(self, "v_fuente_fase") or self.v_linea is None:
-            error_analizador("circuito", "sinFuente",
-                             "Error: defina la tension de la fuente (VL) antes de resolver.")
         if len(self.cargas) == 0:
             error_analizador("circuito", "sinCargas",
                              "Error: agregue al menos una carga antes de resolver.")
@@ -148,13 +219,29 @@ class CircuitoTrifasico:
         z_total = self.z_linea + z_eq
         self.z_total = z_total
 
-        v_fase = self.v_fuente_fase                 # Vf en la fuente (fase a)
-        i_linea = v_fase / z_total                  # IL en el sistema
+        # Determinar el modo de resolución según el dato disponible:
+        #   1) fuente definida  -> I = V_fuente / Z_total
+        #   2) corriente dada   -> V_fuente = I * Z_total
+        #   3) tensión en la carga dada -> I = V_carga / Z_eq ; V_fuente = V_carga + I*Z_linea
+        if self.v_carga_dato is not None:
+            i_linea = self.v_carga_dato / z_eq
+            v_fase = self.v_carga_dato + i_linea * self.z_linea
+        elif self.i_fuente is not None:
+            i_linea = self.i_fuente
+            v_fase = i_linea * z_total
+        elif self.v_fuente_fase is not None:
+            v_fase = self.v_fuente_fase
+            i_linea = v_fase / z_total
+        else:
+            error_analizador("circuito", "sinDatos",
+                             "Error: defina al menos uno de: tension de la fuente, corriente, o tension en la carga.")
+
         v_carga = i_linea * z_eq                    # Vf en la carga (fase a)
         v_caida = i_linea * self.z_linea            # caída en la línea
         s_fase = complex_power(v_fase, i_linea)
         s3f = 3 * s_fase
         fp_info = power_factor(s3f)
+        v_linea_fuente = abs(v_fase) * math.sqrt(3)
 
         detalle = []
         for k, carga in enumerate(self.cargas, start=1):
@@ -195,9 +282,9 @@ class CircuitoTrifasico:
 
         result = SimpleNamespace(
             # fuente
-            v_linea=self.v_linea,
-            v_fuente_linea=polar_to_complex(self.v_linea,
-                                            rad2deg(np.angle(self.v_fuente_fase))),
+            v_linea=v_linea_fuente,
+            v_fuente_linea=polar_to_complex(v_linea_fuente,
+                                            rad2deg(np.angle(v_fase))),
             v_fuente_fase=v_fase,
             # línea
             z_linea=self.z_linea,
