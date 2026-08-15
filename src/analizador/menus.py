@@ -443,3 +443,19 @@ def menu_estabilidad():
     print("  deltaMax= %.4f deg" % result.deltaMax_deg)
     print("  A1 = A2 = %.4f pu-rad" % result.A1)
     print("  tcr = %.4f s" % result.tcr)
+
+
+def menu_circuito_trifasico():
+    """Menú del entorno de resolución de circuitos trifásicos balanceados."""
+    from .asistente import asistente, consola
+    print("\n===== ENTORNO DE CIRCUITO TRIFASICO =====")
+    print("Resuelve el circuito completo (fuente + linea + varias cargas en")
+    print("paralelo, en Y o Delta) sin anotar valores intermedios.\n")
+    opcion = input_helpers("choice", "Elija el modo:", [
+        "Asistente guiado (paso a paso)",
+        "Consola de comandos (avanzado)",
+    ])
+    if opcion == 1:
+        asistente()
+    else:
+        consola()

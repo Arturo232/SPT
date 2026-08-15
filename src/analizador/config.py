@@ -70,6 +70,13 @@ def mensajes() -> dict:
         # --- estabilidad ---
         "analizador:estabilidad:PmExcede": "Error: Pm debe ser menor que Pmax.",
         "analizador:estabilidad:deltaCrInvalido": "Error: deltaCr debe ser mayor que delta0.",
+        # --- circuito trifásico (entorno de resolución) ---
+        "analizador:circuito:sinFuente": "Error: defina la tension de la fuente (VL) antes de resolver.",
+        "analizador:circuito:sinCargas": "Error: agregue al menos una carga antes de resolver.",
+        "analizador:circuito:sinResolver": "Error: resuelva el circuito antes de generar el reporte.",
+        "analizador:circuito:comandoDesconocido": "Error: comando no reconocido. Escriba 'ayuda' para ver los comandos.",
+        "analizador:circuito:complejoInvalido": "Error: no pude interpretar el numero complejo. Use el formato R+jX (ej. 10+5j).",
+        "analizador:circuito:argumentos": "Error: argumentos insuficientes para el comando.",
     }
     return catalogo
 
