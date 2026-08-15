@@ -12,7 +12,7 @@ import re
 import numpy as np
 
 from .circuito import CircuitoTrifasico
-from .errors import error_analizador
+from .errors import AnalizadorError, error_analizador
 from .utils import input_helpers
 
 
@@ -250,10 +250,15 @@ CONSULTA DE VARIABLES (tras resolver)
   detalle <n>        Todas las variables de la carga n.
 
 OTROS
-  ver                Muestra el estado actual del circuito.
+  ver                Muestra el estado actual del circuito y que falta.
   reporte            Muestra el ultimo reporte generado.
   ayuda | help       Muestra esta ayuda.
   salir | exit | quit  Termina la consola.
+
+MENSAJES DE ERROR
+  Si un comando esta mal escrito o le faltan datos, la consola avisa con un
+  mensaje claro y no se detiene. Si falta un dato para resolver, use 'ver'
+  para ver que falta, o 'ayuda' para ver los comandos.
 
 Ejemplos:
   fuente 208
@@ -293,7 +298,32 @@ def consola():
         if linea.lower() in ("salir", "exit", "quit", "q"):
             print("Fin del entorno de circuito.")
             break
-        _ejecutar_comando(circuito, linea)
+        try:
+            _ejecutar_comando(circuito, linea)
+        except AnalizadorError as err:
+            print("  ERROR: %s" % err.mensaje)
+            print("  Tip: escriba 'ayuda' para ver los comandos, o 'ver' para revisar el estado.")
+        except Exception as err:
+            print("  ERROR inesperado: %s" % err)
+            print("  Tip: escriba 'ayuda' para ver los comandos.")
+
+
+def _diagnostico(circuito):
+    """Devuelve una lista de datos que faltan para poder resolver.
+
+    La resolución necesita: al menos un dato de excitación (fuente,
+    corriente o tensión en la carga) y al menos una carga.
+    """
+    faltan = []
+    if circuito.v_fuente_fase is None and circuito.i_fuente is None \
+            and circuito.v_carga_dato is None:
+        faltan.append("defina la fuente ('fuente <VL>' o 'fuente <Vf> fase'), "
+                      "la corriente ('corriente <I>') o la tension en la carga "
+                      "('vcarga <V>').")
+    if len(circuito.cargas) == 0:
+        faltan.append("agregue al menos una carga ('carga <Y|Delta> <Z>' o "
+                      "'pcarga <Y|Delta> <S>').")
+    return faltan
 
 
 def _ejecutar_comando(circuito, linea):
@@ -310,19 +340,27 @@ def _ejecutar_comando(circuito, linea):
         if len(args) < 1:
             error_analizador("circuito", "argumentos",
                              "Uso: fuente <magnitud> [linea|fase] [angulo]")
-        v = float(args[0])
+        try:
+            v = float(args[0])
+        except ValueError:
+            error_analizador("circuito", "argumentos",
+                             "El valor de la fuente debe ser un numero (ej. 'fuente 208' o 'fuente 120 fase'). Valor: '{0}'", args[0])
         dato = "linea"
         angulo = 0.0
-        if len(args) >= 2:
-            if args[1].lower() in ("linea", "l", "line", "vl"):
-                dato = "linea"
-                angulo = float(args[2]) if len(args) > 2 else 0.0
-            elif args[1].lower() in ("fase", "f", "phase", "vf"):
-                dato = "fase"
-                angulo = float(args[2]) if len(args) > 2 else 0.0
-            else:
-                # el segundo argumento es el angulo (compatibilidad)
-                angulo = float(args[1])
+        try:
+            if len(args) >= 2:
+                if args[1].lower() in ("linea", "l", "line", "vl"):
+                    dato = "linea"
+                    angulo = float(args[2]) if len(args) > 2 else 0.0
+                elif args[1].lower() in ("fase", "f", "phase", "vf"):
+                    dato = "fase"
+                    angulo = float(args[2]) if len(args) > 2 else 0.0
+                else:
+                    # el segundo argumento es el angulo (compatibilidad)
+                    angulo = float(args[1])
+        except ValueError:
+            error_analizador("circuito", "argumentos",
+                             "El angulo debe ser un numero en grados (ej. 'fuente 208 15').")
         circuito.set_fuente(v, angulo, dato)
         print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
               % (circuito.v_linea, abs(circuito.v_fuente_fase),
@@ -400,11 +438,18 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("resolver", "solve"):
+        faltan = _diagnostico(circuito)
+        if faltan:
+            print("  No se puede resolver el circuito todavia:")
+            for linea in faltan:
+                print("    - %s" % linea)
+            return
         try:
             circuito.resolver()
             print(circuito.reporte())
         except Exception as err:
             print("  ERROR: %s" % err)
+            print("  Tip: escriba 'ver' para revisar el estado del circuito.")
         return
 
     if cmd in ("reporte", "report"):
@@ -412,6 +457,7 @@ def _ejecutar_comando(circuito, linea):
             print(circuito.reporte())
         except Exception as err:
             print("  ERROR: %s" % err)
+            print("  Tip: resuelva primero con 'resolver'.")
         return
 
     if cmd in ("ver", "estado", "show"):
@@ -435,6 +481,14 @@ def _ejecutar_comando(circuito, linea):
                 print("    %-4s Z_fase = %s" % (c["conexion"], _fmt(c["z_fase"])))
         if circuito.z_eq is not None:
             print("  Z_eq calculada = %s" % _fmt(circuito.z_eq))
+        faltan = _diagnostico(circuito)
+        if faltan:
+            print("  ---")
+            print("  Faltan datos para resolver:")
+            for linea in faltan:
+                print("    - %s" % linea)
+        else:
+            print("  Listo para resolver: escriba 'resolver'.")
         return
 
     # --- comandos de consulta de variables del circuito resuelto ---
@@ -526,5 +580,25 @@ def _ejecutar_comando(circuito, linea):
         print("  Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
         return
 
+    # sugerir comandos parecidos si el usuario se equivoco de tipeo
+    sugerencia = _sugerir_comando(cmd)
+    if sugerencia:
+        error_analizador("circuito", "comandoDesconocido",
+                         "Error: comando no reconocido: '{0}'. Quizas quiso decir: {1}. Escriba 'ayuda' para la lista completa.", cmd, sugerencia)
     error_analizador("circuito", "comandoDesconocido",
-                     "Error: comando no reconocido: {0}. Escriba 'ayuda'.", cmd)
+                     "Error: comando no reconocido: '{0}'. Escriba 'ayuda' para ver la lista de comandos.", cmd)
+
+
+_COMANDOS_VALIDOS = [
+    "fuente", "corriente", "vcarga", "linea", "carga", "add", "pcarga",
+    "cargas", "limpiar", "resolver", "solve", "reporte", "variables",
+    "vl", "vf", "il", "if", "s", "potencia", "detalle", "ver", "ayuda",
+    "salir", "exit", "quit",
+]
+
+
+def _sugerir_comando(escrito):
+    """Devuelve el comando valido mas parecido al texto escrito (o None)."""
+    import difflib
+    similares = difflib.get_close_matches(escrito, _COMANDOS_VALIDOS, n=1, cutoff=0.5)
+    return similares[0] if similares else None

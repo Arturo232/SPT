@@ -326,3 +326,50 @@ def test_comandos_variantes():
     _ejecutar_comando(c3, "fuente 200 fase")
     _ejecutar_comando(c3, "pcarga Y 1200+1600j")
     assert c3.cargas[0]["por_potencia"] is True
+
+
+def test_diagnostico_faltan_datos():
+    """El diagnostico indica que datos faltan para resolver."""
+    from analizador.asistente import _diagnostico
+    c = CircuitoTrifasico()
+    faltan = _diagnostico(c)
+    assert any("fuente" in f for f in faltan)
+    assert any("agregue" in f for f in faltan)
+    # con carga pero sin fuente: solo falta la fuente
+    c.agregar_carga("Y", 30 + 40j)
+    faltan2 = _diagnostico(c)
+    assert any("fuente" in f for f in faltan2)
+    assert not any("agregue" in f for f in faltan2)
+    # con ambos: listo
+    c.set_fuente(208)
+    assert _diagnostico(c) == []
+
+
+def test_consola_no_se_rompe_con_errores():
+    """La consola captura errores y sigue funcionando (no lanza)."""
+    from unittest.mock import patch
+    from analizador.asistente import consola
+    # mezcla de errores y comandos validos; 'zzz' no debe cortar la consola
+    cmds = ["zzz", "fuente 208", "carga Y 30+40j", "resolver", "salir"]
+    with patch("builtins.input", side_effect=cmds):
+        consola()
+
+
+def test_sugerencia_comando_typo():
+    """Un typo sugiere el comando correcto."""
+    c = CircuitoTrifasico()
+    try:
+        _ejecutar_comando(c, "liena 2+4j")
+        assert False, "Deberia lanzar AnalizadorError"
+    except AnalizadorError as err:
+        assert err.codigo == "analizador:circuito:comandoDesconocido"
+        assert "linea" in err.mensaje
+
+
+def test_fuente_valor_invalido_mensaje_claro():
+    c = CircuitoTrifasico()
+    try:
+        _ejecutar_comando(c, "fuente abc")
+        assert False, "Deberia lanzar AnalizadorError"
+    except AnalizadorError as err:
+        assert "numero" in err.mensaje
