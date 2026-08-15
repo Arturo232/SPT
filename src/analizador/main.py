@@ -9,6 +9,7 @@ from .menus import (menu_circuito_trifasico, menu_circuitos,
                     menu_estabilidad, menu_flujo_carga, menu_flujo_potencia,
                     menu_maquinas, menu_per_unit, menu_potencia_compleja,
                     menu_transformador, menu_trifasico)
+from .asistente import consola
 
 _OPCIONES = [
     # (clave, descripcion, handler)
@@ -41,10 +42,10 @@ UNIDADES
   Tension [V], corriente [A], impedancia [ohm], potencia [W/var/VA],
   frecuencia [Hz], angulos en grados.
 
-ENTORNO DE CIRCUITO TRIFASICO
-  Opcion 'A': permite armar un circuito completo (fuente + linea + varias
-  cargas en paralelo, en Y o Delta) y resolverlo en un solo paso, con
-  asistente guiado o por comandos.
+ENTORNO DE CIRCUITOS (CONSOLA)
+  Opcion 'C': consola de comandos para armar y resolver circuitos
+  monofasicos (1f) y trifasicos balanceados (3f). Cambie de modo con
+  'modo mono' o 'modo tri', o resuelva con 'resolver mono'/'resolver tri'.
 
 TALLER 2026
   Los ejercicios del taller se ejecutan como pruebas (pytest) y estan
@@ -56,7 +57,8 @@ def _mostrar_menu():
     print("\n============================================")
     print(" ANALIZADOR DE SISTEMAS DE POTENCIA")
     print("============================================")
-    print(" A. Resolver circuito trifasico (asistente)  <-- recomendado")
+    print(" C. Consola de comandos (monofasico y trifasico)  <-- recomendado")
+    print(" A. Asistente guiado de circuito trifasico")
     print("--------------------------------------------")
     print(" CIRCUITOS Y POTENCIA")
     for clave, desc, _ in _OPCIONES[:5]:
@@ -87,6 +89,9 @@ def main():
         if clave == "0":
             print("\nFin del programa.")
             return
+        if clave == "c":
+            consola()
+            continue
         if clave in ("a", "circuito"):
             menu_circuito_trifasico()
             continue
@@ -94,7 +99,7 @@ def main():
             print(_AYUDA)
             continue
         if not _dispatch(clave):
-            print("Opcion no valida. Use el numero del tema, 'A' para el asistente, 'H' para ayuda o '0' para salir.")
+            print("Opcion no valida. Use 'C' para la consola, 'A' para el asistente, 'H' para ayuda o '0' para salir.")
 
 
 if __name__ == "__main__":

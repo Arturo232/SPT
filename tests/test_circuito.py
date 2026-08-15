@@ -1,11 +1,12 @@
-"""Pruebas del entorno de circuito trifásico (clase + asistente + consola)."""
+"""Pruebas del entorno de circuito (clase + asistente + consola)."""
 
 import math
 
 import numpy as np
 
-from analizador.asistente import _ejecutar_comando, parse_complejo
-from analizador.circuito import CircuitoTrifasico
+from analizador.asistente import (_ejecutar_comando, SesionConsola,
+                                  parse_complejo)
+from analizador.circuito import CircuitoMonofasico, CircuitoTrifasico
 from analizador.errors import AnalizadorError
 
 from .conftest import raises_codigo
@@ -458,3 +459,93 @@ def test_fuente_valor_invalido_mensaje_claro():
         assert False, "Deberia lanzar AnalizadorError"
     except AnalizadorError as err:
         assert "numero" in err.mensaje
+
+
+# ---------------------------------------------------------------------------
+# Modo monofasico y cambio de modo
+# ---------------------------------------------------------------------------
+def test_circuito_monofasico_basico():
+    """Circuito 1f: fuente 200 V, carga 10+20j -> S = V*conj(V/Z)."""
+    c = CircuitoMonofasico()
+    c.set_fuente(200, 0)
+    c.agregar_carga(10 + 20j)
+    r = c.resolver()
+    # I = 200/(10+20j) = 4 - 8j ; S = 200*conj(4-8j) = 800 + j1600
+    assert abs(r.i_linea - (4 - 8j)) < 1e-9
+    assert abs(r.s - (800 + 1600j)) < 1e-9
+    assert abs(r.P - 800) < 1e-9
+    assert abs(r.Q - 1600) < 1e-9
+    assert abs(r.fp - 0.4472) < 1e-3
+    assert "MONOFASICO" in c.reporte()
+
+
+def test_circuito_monofasico_paralelo():
+    """Dos cargas en paralelo en mono: se combinan por admitancias."""
+    c = CircuitoMonofasico()
+    c.set_fuente(200, 0)
+    c.agregar_carga(100)
+    c.agregar_carga(10 + 20j)
+    r = c.resolver()
+    # Zeq = 1/(1/100 + 1/(10+20j))
+    z_eq = 1 / (1 / 100 + 1 / (10 + 20j))
+    assert abs(r.z_eq - z_eq) < 1e-9
+    # I total = 200/z_eq
+    assert abs(r.i_linea - 200 / z_eq) < 1e-9
+
+
+def test_circuito_monofasico_por_potencia():
+    """Carga mono por potencia: Z = |V|^2/conj(S)."""
+    c = CircuitoMonofasico()
+    c.set_fuente(200, 0)
+    c.agregar_carga_por_potencia(1200 + 1600j)
+    z_esp = (200 ** 2) / np.conjugate(1200 + 1600j)
+    assert abs(c.cargas[0] - z_esp) < 1e-6
+
+
+def test_consola_modo_mono():
+    """La consola en modo mono usa la sintaxis sin conexion."""
+    s = SesionConsola(modo="mono")
+    _ejecutar_comando(s, "fuente 200")
+    assert abs(s.mono.v_fuente - 200) < 1e-9
+    _ejecutar_comando(s, "carga 10+20j")
+    assert abs(s.mono.cargas[0] - (10 + 20j)) < 1e-9
+    _ejecutar_comando(s, "resolver mono")
+    assert s.mono.resultado is not None
+    assert abs(s.mono.resultado.s - (800 + 1600j)) < 1e-9
+
+
+def test_consola_cambio_de_modo():
+    """'modo tri' / 'modo mono' cambian el circuito activo sin perder datos."""
+    s = SesionConsola(modo="mono")
+    _ejecutar_comando(s, "fuente 200")
+    _ejecutar_comando(s, "carga 10+20j")
+    # cambiar a tri y definir un circuito aparte
+    _ejecutar_comando(s, "modo tri")
+    assert s.modo == "tri"
+    _ejecutar_comando(s, "fuente 208")
+    _ejecutar_comando(s, "carga Y 30+40j")
+    # el circuito mono se conserva
+    assert abs(s.mono.v_fuente - 200) < 1e-9
+    assert abs(s.tri.v_linea - 208) < 1e-9
+    # volver a mono y resolver
+    _ejecutar_comando(s, "resolver mono")
+    assert abs(s.mono.resultado.s - (800 + 1600j)) < 1e-9
+
+
+def test_resolver_explicito_tri():
+    """'resolver tri' cambia a trifasico y resuelve el circuito tri."""
+    s = SesionConsola(modo="mono")
+    _ejecutar_comando(s, "modo tri")
+    _ejecutar_comando(s, "fuente 207.846")
+    _ejecutar_comando(s, "carga Y 30+40j")
+    _ejecutar_comando(s, "resolver tri")
+    assert s.modo == "tri"
+    assert s.tri.resultado is not None
+    # I = V_f / Z_total = 120 / |30+40j| = 2.4 A
+    assert abs(abs(s.tri.resultado.i_linea) - 2.4) < 1e-4
+
+
+def test_modo_invalido():
+    s = SesionConsola(modo="mono")
+    raises_codigo(lambda: _ejecutar_comando(s, "modo xx"),
+                  "analizador:circuito:argumentos")

@@ -406,3 +406,247 @@ def _fmt_fasor(z):
     """Fasor en forma rectangular + polar: 'a+jb | M angulo theta deg'."""
     ang = rad2deg(np.angle(z))
     return "%s | %.4g angulo %.4g deg" % (_fmt_complex(z), abs(z), ang)
+
+
+class CircuitoMonofasico:
+    """Modelo con estado de un circuito monofásico (1φ).
+
+    Similar a ``CircuitoTrifasico`` pero sin conversión Y/Δ (todas las
+    cargas van en paralelo directo) y sin factor √3 ni potencias ×3.
+    La fuente es una sola tensión V (con su ángulo).
+
+    Relaciones:
+      Y_eq = sum(1/Z_k)   →  Z_eq = 1/Y_eq          (cargas en paralelo)
+      Z_total = Z_linea + Z_eq
+      I = V / Z_total
+      V_carga = I * Z_eq
+      S = V * conj(I) ; P = Re(S) ; Q = Im(S)
+    """
+
+    def __init__(self, v=None, z_linea=0j):
+        self.v = v
+        self.v_fuente = None      # fasor de la fuente
+        self.z_linea = z_linea
+        self.cargas = []          # lista de impedancias (paralelo)
+        self.z_eq = None
+        self.z_total = None
+        self.resultado = None
+        self.i_fuente = None
+        self.v_carga_dato = None
+
+    # ------------------------------------------------------------------
+    def set_fuente(self, v, angulo_deg=0.0):
+        """Define la tensión de la fuente [V] (con ángulo en grados)."""
+        validate_input("positive", v, "V")
+        self.v = v
+        self.v_fuente = polar_to_complex(v, angulo_deg)
+        self.i_fuente = None
+        self.v_carga_dato = None
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def set_corriente(self, i_fuente):
+        """Define la corriente de la fuente como dato (fasor)."""
+        validate_input("numeric", i_fuente, "I")
+        validate_input("nonzero", i_fuente, "I")
+        self.i_fuente = i_fuente
+        self.v_fuente = None
+        self.v = None
+        self.v_carga_dato = None
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def set_v_carga(self, v_carga):
+        """Define la tensión en la carga como dato (fasor)."""
+        validate_input("numeric", v_carga, "Vcarga")
+        validate_input("nonzero", v_carga, "Vcarga")
+        self.v_carga_dato = v_carga
+        self.i_fuente = None
+        self.v_fuente = None
+        self.v = None
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def set_linea(self, z_linea):
+        """Define la impedancia de línea en serie [ohm]."""
+        validate_input("numeric", z_linea, "Zlinea")
+        self.z_linea = z_linea
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def agregar_carga(self, z):
+        """Agrega una carga en paralelo (impedancia [ohm])."""
+        validate_input("numeric", z, "Z")
+        validate_input("nonzero", z, "Z")
+        self.cargas.append(z)
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def agregar_carga_por_potencia(self, s_total, v_nominal=None):
+        """Agrega una carga por su potencia compleja S [VA].
+
+        Se convierte a impedancia con la tensión nominal:
+          Z = |V|^2 / conj(S)
+        """
+        validate_input("numeric", s_total, "S")
+        validate_input("nonzero", s_total, "S")
+        if v_nominal is None:
+            if self.v_carga_dato is not None:
+                v_nominal = abs(self.v_carga_dato)
+            elif self.v is not None:
+                v_nominal = self.v
+            else:
+                error_analizador("circuito", "sinTension",
+                                 "Error: defina la tension de la fuente o el voltaje nominal de la carga antes de usar potencia.")
+        z = (abs(v_nominal) ** 2) / np.conjugate(s_total)
+        self.cargas.append(z)
+        self.z_eq = None
+        self.z_total = None
+        return self
+
+    def limpiar_cargas(self):
+        self.cargas = []
+        self.z_eq = None
+        self.z_total = None
+
+    # ------------------------------------------------------------------
+    def impedancia_equivalente(self):
+        if len(self.cargas) == 0:
+            error_analizador("circuito", "sinCargas",
+                             "Error: agregue al menos una carga antes de resolver.")
+        y_eq = sum(1 / z for z in self.cargas)
+        z_eq = 1 / y_eq
+        self.z_eq = z_eq
+        return z_eq
+
+    def resolver(self):
+        """Resuelve el circuito monofásico completo.
+
+        Regresa ``SimpleNamespace`` con: v_fuente, z_linea, v_caida_linea,
+        v_carga, z_eq, z_total, i_linea, s, P, Q, Sabs, fp, type, phi_deg
+        y el detalle por carga.
+        """
+        if len(self.cargas) == 0:
+            error_analizador("circuito", "sinCargas",
+                             "Error: agregue al menos una carga antes de resolver.")
+        z_eq = self.impedancia_equivalente()
+        z_total = self.z_linea + z_eq
+        self.z_total = z_total
+
+        if self.v_carga_dato is not None:
+            i_linea = self.v_carga_dato / z_eq
+            v_fuente = self.v_carga_dato + i_linea * self.z_linea
+        elif self.i_fuente is not None:
+            i_linea = self.i_fuente
+            v_fuente = i_linea * z_total
+        elif self.v_fuente is not None:
+            v_fuente = self.v_fuente
+            i_linea = v_fuente / z_total
+        else:
+            error_analizador("circuito", "sinDatos",
+                             "Error: defina al menos uno de: tension de la fuente, corriente, o tension en la carga.")
+
+        v_carga = i_linea * z_eq
+        v_caida = i_linea * self.z_linea
+        s = complex_power(v_fuente, i_linea)
+        fp_info = power_factor(s)
+
+        detalle = []
+        for k, z in enumerate(self.cargas, start=1):
+            i_rama = v_carga / z
+            s_carga = complex_power(v_carga, i_rama)
+            fp_carga = power_factor(s_carga)
+            detalle.append({
+                "id": k,
+                "z": z,
+                "v": v_carga,
+                "i": i_rama,
+                "s": s_carga,
+                "P": np.real(s_carga),
+                "Q": np.imag(s_carga),
+                "Sabs": fp_carga.Sabs,
+                "fp": fp_carga.fp,
+                "type": fp_carga.type,
+                "phi_deg": rad2deg(np.angle(s_carga)),
+            })
+
+        result = SimpleNamespace(
+            v_fuente=v_fuente,
+            z_linea=self.z_linea,
+            v_caida_linea=v_caida,
+            v_carga=v_carga,
+            z_eq=z_eq,
+            z_total=z_total,
+            i_linea=i_linea,
+            s=s,
+            P=np.real(s),
+            Q=np.imag(s),
+            Sabs=fp_info.Sabs,
+            fp=fp_info.fp,
+            type=fp_info.type,
+            phi_deg=rad2deg(np.angle(s)),
+            cargas=detalle,
+        )
+        self.resultado = result
+        return result
+
+    # ------------------------------------------------------------------
+    def reporte(self):
+        """Texto legible con todas las variables del circuito monofásico."""
+        r = self.resultado
+        if r is None:
+            error_analizador("circuito", "sinResolver",
+                             "Error: resuelva el circuito antes de generar el reporte.")
+        lineas = [
+            "",
+            "===== REPORTE DEL CIRCUITO MONOFASICO =====",
+            "",
+            "--- FUENTE ---",
+            "  Tension de fuente   V   = %s" % _fmt_fasor(r.v_fuente),
+            "",
+            "--- LINEA DE TRANSMISION ---",
+            "  Impedancia serie   Z_L   = %s" % _fmt_complex(r.z_linea),
+            "  Caida de tension   dV_L  = %s" % _fmt_fasor(r.v_caida_linea),
+            "",
+            "--- CARGAS EN PARALELO (detalle) ---",
+        ]
+        for k, c in enumerate(r.cargas, start=1):
+            lineas.append(
+                "  C%d: Z = %s" % (k, _fmt_complex(c["z"])))
+            lineas.append(
+                "      V_f = %s ;  I_f = %s" % (_fmt_fasor(c["v"]), _fmt_fasor(c["i"])))
+            lineas.append(
+                "      S   = %s  (P = %.4f W, Q = %.4f var, |S| = %.4f VA)"
+                % (_fmt_complex(c["s"]), c["P"], c["Q"], c["Sabs"]))
+            lineas.append(
+                "      FP  = %.4f (%s), phi = %.4f deg"
+                % (c["fp"], _estado(c["type"]), c["phi_deg"]))
+        lineas += [
+            "",
+            "--- CIRCUITO EQUIVALENTE ---",
+            "  Impedancia equivalente de la carga   Z_eq     = %s" % _fmt_complex(r.z_eq),
+            "  Impedancia total (linea + carga)     Z_total  = %s" % _fmt_complex(r.z_total),
+            "",
+            "--- CORRIENTES ---",
+            "  Corriente de la fuente   I = %s  (|I| = %.4f A)"
+            % (_fmt_fasor(r.i_linea), abs(r.i_linea)),
+            "",
+            "--- TENSIONES EN LA CARGA ---",
+            "  Tension en la carga      V_f = %s  (|V| = %.4f V)"
+            % (_fmt_fasor(r.v_carga), abs(r.v_carga)),
+            "",
+            "--- POTENCIA TOTAL ---",
+            "  S = %s" % _fmt_complex(r.s),
+            "  P   = %.4f W" % r.P,
+            "  Q   = %.4f var" % r.Q,
+            "  |S| = %.4f VA" % r.Sabs,
+            "  FP  = %.4f (%s)" % (r.fp, _estado(r.type)),
+            "  phi = %.4f deg" % r.phi_deg,
+            "",
+        ]
+        return "\n".join(lineas)

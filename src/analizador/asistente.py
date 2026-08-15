@@ -11,7 +11,7 @@ import re
 
 import numpy as np
 
-from .circuito import CircuitoTrifasico
+from .circuito import CircuitoMonofasico, CircuitoTrifasico
 from .errors import AnalizadorError, error_analizador
 from .utils import input_helpers
 
@@ -234,8 +234,16 @@ def _ofrecer_exportar(circuito):
 # Consola de comandos (parser natural)
 # ---------------------------------------------------------------------------
 _AYUDA = """
-COMANDOS DEL ENTORNO DE CIRCUITO TRIFASICO
---------------------------------------------
+COMANDOS DE LA CONSOLA DE CIRCUITOS (MONOFASICO Y TRIFASICO)
+-------------------------------------------------------------
+MODOS DE TRABAJO
+  modo               Muestra el modo actual (mono o tri).
+  modo mono          Cambia a circuito monofasico (1f).
+  modo tri           Cambia a circuito trifasico balanceado (3f).
+  resolver mono      Resuelve como monofasico (cambia de modo si hace falta).
+  resolver tri       Resuelve como trifasico.
+  Cada modo guarda su propio circuito (fuente, linea y cargas).
+
 FORMATO DE IMPEDANCIAS Y FASORES (en cualquier comando):
   Rectangular : R+jX  (ej. 10+5j, 2-8j, 4j, j5)  o  R+iX (tambien con i)
   Polar       : M angulo A  |  M/A  |  M∠A  |  M<A  |  M exp(A)  |  M cis(A)
@@ -248,28 +256,30 @@ FORMATO DE IMPEDANCIAS Y FASORES (en cualquier comando):
 
 DEFINICION DEL CIRCUITO
   fuente <magnitud> [linea|fase] [angulo]
-                     Define la tension de la fuente. Por defecto se
-                     interpreta como tension de LINEA (VL); use 'fase' si
-                     el dato es la tension de fase (Vf).
+                     Define la tension de la fuente.
+                     - En modo TRIFASICO: por defecto es tension de LINEA
+                       (VL); use 'fase' si el dato es Vf.
+                     - En modo MONOFASICO: es la unica tension V.
                      Tambien acepta el fasor completo con angulo:
                        fuente 120@30        fuente 120 angulo 30
                        fuente 120/30        fuente 96.4+64.3j
                      Ej: fuente 208  |  fuente 120 fase  |  fuente 120 f 0
-  corriente <I>      Define la corriente de la fuente como dato (I_L o I_f);
+  corriente <I>      Define la corriente de la fuente como dato;
                      la fuente se deriva.  Ej: corriente 30-40j
   vcarga <V>         Define la tension en la CARGA como dato; la fuente y
                      la corriente se derivan.  Ej: vcarga 110-20j
   linea <Z>          Define la impedancia de linea (serie).
+  carga <Z>          (MODO MONO) Agrega una carga en paralelo.  Ej: carga 10+20j
   carga <Y|Delta> <Z>
-                     Agrega una carga en paralelo (conversion D->Y
-                     automatica).  Ej: carga Delta 30+40j | carga Y 50/30
-  pcarga <Y|Delta> <S> [V_nominal]
-                     Agrega una carga por su POTENCIA compleja total
-                     (se convierte a impedancia con la tension nominal).
+                     (MODO TRI) Agrega una carga (conversion D->Y automatica).
+                     Ej: carga Delta 30+40j | carga Y 50/30
+  pcarga <S> [Vnom]  (MODO MONO) Carga por su POTENCIA total.
+  pcarga <Y|Delta> <S> [Vnom]
+                     (MODO TRI) Carga por potencia con su conexion.
                      Ej: pcarga Y 1200+1600j
-  add <Y|D> <Z>      Igual que 'carga'.
-  cargas             Muestra las cargas definidas.
-  limpiar            Elimina todas las cargas.
+  add ...            Igual que 'carga' (en el modo actual).
+  cargas             Muestra las cargas definidas del modo actual.
+  limpiar            Elimina todas las cargas del modo actual.
 
 RESOLUCION
   resolver | solve   Resuelve el circuito y muestra el reporte completo.
@@ -315,10 +325,39 @@ Ejemplos:
 """
 
 
-def consola():
-    """Consola interactiva con comandos naturales."""
-    circuito = CircuitoTrifasico()
-    print("\n===== ENTORNO DE CIRCUITO TRIFASICO (CONSOLA) =====")
+class SesionConsola:
+    """Estado de la consola: modo activo (mono/tri) y ambos circuitos."""
+
+    def __init__(self, modo="tri"):
+        self.mono = CircuitoMonofasico()
+        self.tri = CircuitoTrifasico()
+        self.modo = modo
+
+    @property
+    def circuito(self):
+        return self.mono if self.modo == "mono" else self.tri
+
+    def cambiar_modo(self, modo):
+        m = modo.lower()
+        if m in ("mono", "monofasico", "1", "1f"):
+            self.modo = "mono"
+        elif m in ("tri", "trifasico", "3", "3f"):
+            self.modo = "tri"
+        else:
+            error_analizador("circuito", "argumentos",
+                             "Modo no valido: '{0}'. Use 'mono' o 'tri'.".format(modo))
+        return self.modo
+
+
+def consola(modo="tri"):
+    """Consola interactiva con comandos naturales.
+
+    Trabaja en modo monofasico o trifasico; se elige con 'modo mono'/'modo
+    tri' o al resolver con 'resolver mono'/'resolver tri'.
+    """
+    sesion = SesionConsola(modo=modo)
+    print("\n===== CONSOLA DE CIRCUITOS (MONOFASICO Y TRIFASICO) =====")
+    print("Modo actual: %s  (cambie con 'modo mono' o 'modo tri')" % sesion.modo)
     print("Escriba 'ayuda' para ver los comandos y ejemplos. Escriba 'salir' para terminar.")
 
     while True:
@@ -333,7 +372,7 @@ def consola():
             print("Fin del entorno de circuito.")
             break
         try:
-            _ejecutar_comando(circuito, linea)
+            _ejecutar_comando(sesion, linea)
         except AnalizadorError as err:
             print("  ERROR: %s" % err.mensaje)
             print("  Tip: escriba 'ayuda' para ver los comandos, o 'ver' para revisar el estado.")
@@ -346,28 +385,86 @@ def _diagnostico(circuito):
     """Devuelve una lista de datos que faltan para poder resolver.
 
     La resolución necesita: al menos un dato de excitación (fuente,
-    corriente o tensión en la carga) y al menos una carga.
+    corriente o tensión en la carga) y al menos una carga. Funciona para
+    ``CircuitoMonofasico`` y ``CircuitoTrifasico``.
     """
     faltan = []
-    if circuito.v_fuente_fase is None and circuito.i_fuente is None \
+    if isinstance(circuito, CircuitoMonofasico):
+        tiene_fuente = circuito.v_fuente is not None
+        cmd_fuente = "'fuente <V>'"
+        cmd_carga = "'carga <Z>' o 'pcarga <S>'"
+    else:
+        tiene_fuente = circuito.v_fuente_fase is not None
+        cmd_fuente = "'fuente <VL>' o 'fuente <Vf> fase'"
+        cmd_carga = "'carga <Y|Delta> <Z>' o 'pcarga <Y|Delta> <S>'"
+    if not tiene_fuente and circuito.i_fuente is None \
             and circuito.v_carga_dato is None:
-        faltan.append("defina la fuente ('fuente <VL>' o 'fuente <Vf> fase'), "
-                      "la corriente ('corriente <I>') o la tension en la carga "
-                      "('vcarga <V>').")
+        faltan.append("defina la fuente (%s), la corriente ('corriente <I>') "
+                      "o la tension en la carga ('vcarga <V>')." % cmd_fuente)
     if len(circuito.cargas) == 0:
-        faltan.append("agregue al menos una carga ('carga <Y|Delta> <Z>' o "
-                      "'pcarga <Y|Delta> <S>').")
+        faltan.append("agregue al menos una carga (%s)." % cmd_carga)
     return faltan
 
 
-def _ejecutar_comando(circuito, linea):
+def _normalizar_sesion(entrada):
+    """Convierte la entrada a una ``SesionConsola``.
+
+    Acepta una ``SesionConsola`` o directamente un ``CircuitoTrifasico`` /
+    ``CircuitoMonofasico`` (para compatibilidad en pruebas).
+    """
+    if isinstance(entrada, SesionConsola):
+        return entrada
+    if isinstance(entrada, CircuitoMonofasico):
+        sesion = SesionConsola(modo="mono")
+        sesion.mono = entrada
+        return sesion
+    if isinstance(entrada, CircuitoTrifasico):
+        sesion = SesionConsola(modo="tri")
+        sesion.tri = entrada
+        return sesion
+    error_analizador("circuito", "argumentos",
+                     "Se esperaba una SesionConsola o un circuito.")
+
+
+def _es_mono(circuito):
+    return isinstance(circuito, CircuitoMonofasico)
+
+
+def _set_fuente(circuito, v, angulo, dato="linea"):
+    if _es_mono(circuito):
+        circuito.set_fuente(v, angulo)
+    else:
+        circuito.set_fuente(v, angulo, dato)
+
+
+def _mostrar_fuente(circuito):
+    if _es_mono(circuito):
+        print("  Fuente: V = %s" % _fasor(circuito.v_fuente))
+    else:
+        print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
+              % (circuito.v_linea, abs(circuito.v_fuente_fase),
+                 _fasor(circuito.v_fuente_fase)))
+
+
+def _ejecutar_comando(sesion, linea):
     """Ejecuta una línea de comando y devuelve True si se continuó con éxito."""
+    sesion = _normalizar_sesion(sesion)
+    circuito = sesion.circuito
     partes = linea.split()
     cmd = partes[0].lower()
     args = partes[1:]
 
     if cmd in ("ayuda", "help", "?"):
         print(_AYUDA)
+        return
+
+    if cmd in ("modo", "tipo"):
+        if len(args) < 1:
+            print("  Modo actual: %s  ('modo mono' o 'modo tri')" % sesion.modo)
+            return
+        nuevo = sesion.cambiar_modo(args[0])
+        circuito = sesion.circuito
+        print("  Modo: %s" % nuevo)
         return
 
     if cmd in ("fuente", "vfuente", "set-fuente"):
@@ -383,10 +480,8 @@ def _ejecutar_comando(circuito, linea):
                 mag = float(m.group(1))
                 angulo = float(m.group(2))
                 dato = "fase" if m.group(3) and m.group(3).lower() in ("fase", "f") else "linea"
-                circuito.set_fuente(mag, angulo, dato)
-                print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
-                      % (circuito.v_linea, abs(circuito.v_fuente_fase),
-                         _fasor(circuito.v_fuente_fase)))
+                _set_fuente(circuito, mag, angulo, dato)
+                _mostrar_fuente(circuito)
                 return
         # Si el primer argumento es un fasor con angulo o imaginario:
         # fuente 120@30, fuente 120/30, fuente 120<30, fuente 96.4+64.3j
@@ -401,10 +496,8 @@ def _ejecutar_comando(circuito, linea):
             dato = "linea"
             if len(args) > 1 and args[1].lower() in ("fase", "f", "phase", "vf"):
                 dato = "fase"
-            circuito.set_fuente(mag, angulo, dato)
-            print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
-                  % (circuito.v_linea, abs(circuito.v_fuente_fase),
-                     _fasor(circuito.v_fuente_fase)))
+            _set_fuente(circuito, mag, angulo, dato)
+            _mostrar_fuente(circuito)
             return
         try:
             v = float(args[0])
@@ -427,10 +520,8 @@ def _ejecutar_comando(circuito, linea):
         except ValueError:
             error_analizador("circuito", "argumentos",
                              "El angulo debe ser un numero en grados (ej. 'fuente 208 15').")
-        circuito.set_fuente(v, angulo, dato)
-        print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
-              % (circuito.v_linea, abs(circuito.v_fuente_fase),
-                 _fasor(circuito.v_fuente_fase)))
+        _set_fuente(circuito, v, angulo, dato)
+        _mostrar_fuente(circuito)
         return
 
     if cmd in ("linea", "zlinea", "set-linea"):
@@ -443,6 +534,21 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("carga", "add", "agregar"):
+        if len(args) < 1:
+            error_analizador("circuito", "argumentos",
+                             "Uso: carga <R+jX | M angulo A | R X>"
+                             if _es_mono(circuito) else
+                             "Uso: carga <Y|Delta> <R+jX | M angulo A | R X>")
+        if _es_mono(circuito):
+            # en mono no hay conexion Y/Delta
+            if args[0].lower() in ("y", "delta", "estrella", "d"):
+                z = parse_impedancia(args[1:])
+            else:
+                z = parse_impedancia(args)
+            circuito.agregar_carga(z)
+            n = len(circuito.cargas)
+            print("  Carga %d: Z = %s" % (n, _fmt(circuito.cargas[-1])))
+            return
         if len(args) < 2:
             error_analizador("circuito", "argumentos",
                              "Uso: carga <Y|Delta> <R+jX | M angulo A | R X>")
@@ -456,8 +562,21 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("pcarga", "p-carga", "potencia-carga"):
-        # carga definida por su potencia total S (ej. "pcarga Y 1200+1600j"
-        # o "pcarga Delta 5000 angulo 36.87" o "pcarga Y 1000 1000")
+        # carga definida por su potencia S. En tri: pcarga <Y|Delta> <S>.
+        # En mono: pcarga <S>.
+        if len(args) < 1:
+            error_analizador("circuito", "argumentos",
+                             "Uso: pcarga <S | M angulo A> [V_nominal]"
+                             if _es_mono(circuito) else
+                             "Uso: pcarga <Y|Delta> <S | M angulo A> [V_nominal]")
+        if _es_mono(circuito):
+            s = parse_complejo(" ".join(args))
+            v_nominal = None
+            circuito.agregar_carga_por_potencia(s, v_nominal)
+            n = len(circuito.cargas)
+            print("  Carga %d por potencia: S = %s -> Z = %s"
+                  % (n, _fmt(s), _fmt(circuito.cargas[-1])))
+            return
         if len(args) < 2:
             error_analizador("circuito", "argumentos",
                              "Uso: pcarga <Y|Delta> <S | M angulo A> [V_nominal]")
@@ -493,9 +612,12 @@ def _ejecutar_comando(circuito, linea):
         if len(circuito.cargas) == 0:
             print("  No hay cargas definidas.")
             return
-        for c in circuito.cargas:
-            print("  %-4s Z_fase = %s  Z_Y = %s"
-                  % (c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
+        for i, c in enumerate(circuito.cargas, start=1):
+            if _es_mono(circuito):
+                print("  C%d: Z = %s" % (i, _fmt(c)))
+            else:
+                print("  C%d: %-4s Z_fase = %s  Z_Y = %s"
+                      % (i, c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
         return
 
     if cmd in ("limpiar", "reset", "clear"):
@@ -504,9 +626,16 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("resolver", "solve"):
+        # resolver [mono|tri]: permite elegir el modo al resolver
+        if len(args) >= 1 and args[0].lower() in ("mono", "monofasico", "1", "1f"):
+            sesion.cambiar_modo("mono")
+            circuito = sesion.circuito
+        elif len(args) >= 1 and args[0].lower() in ("tri", "trifasico", "3", "3f"):
+            sesion.cambiar_modo("tri")
+            circuito = sesion.circuito
         faltan = _diagnostico(circuito)
         if faltan:
-            print("  No se puede resolver el circuito todavia:")
+            print("  No se puede resolver el circuito (%s) todavia:" % sesion.modo)
             for linea in faltan:
                 print("    - %s" % linea)
             return
@@ -527,24 +656,34 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("ver", "estado", "show"):
-        v = getattr(circuito, "v_fuente_fase", None)
-        if v is not None:
-            print("  Fuente: VL = %g V, fase a = %s"
-                  % (circuito.v_linea, _fasor(v)))
+        print("  Modo: %s  (cambie con 'modo mono' o 'modo tri')" % sesion.modo)
+        if _es_mono(circuito):
+            v = circuito.v_fuente
+            if v is not None:
+                print("  Fuente: V = %s" % _fasor(v))
+            else:
+                print("  Fuente: no definida (use 'fuente', 'corriente' o 'vcarga')")
         else:
-            print("  Fuente: no definida (use 'fuente', 'corriente' o 'vcarga')")
+            v = circuito.v_fuente_fase
+            if v is not None:
+                print("  Fuente: VL = %g V, fase a = %s"
+                      % (circuito.v_linea, _fasor(v)))
+            else:
+                print("  Fuente: no definida (use 'fuente', 'corriente' o 'vcarga')")
         if circuito.i_fuente is not None:
             print("  Corriente de fuente (dato): I = %s" % _fasor(circuito.i_fuente))
         if circuito.v_carga_dato is not None:
             print("  Tension en la carga (dato): V_f = %s" % _fasor(circuito.v_carga_dato))
         print("  Linea:  Z = %s" % _fmt(circuito.z_linea))
         print("  Cargas: %d" % len(circuito.cargas))
-        for c in circuito.cargas:
-            if c.get("por_potencia"):
-                print("    %-4s S = %s (por potencia) -> Z_fase = %s"
-                      % (c["conexion"], _fmt(c.get("s_total", 0)), _fmt(c["z_fase"])))
+        for i, c in enumerate(circuito.cargas, start=1):
+            if _es_mono(circuito):
+                print("    C%d: Z = %s" % (i, _fmt(c)))
+            elif c.get("por_potencia"):
+                print("    C%d: %-4s S = %s (por potencia) -> Z_fase = %s"
+                      % (i, c["conexion"], _fmt(c.get("s_total", 0)), _fmt(c["z_fase"])))
             else:
-                print("    %-4s Z_fase = %s" % (c["conexion"], _fmt(c["z_fase"])))
+                print("    C%d: %-4s Z_fase = %s" % (i, c["conexion"], _fmt(c["z_fase"])))
         if circuito.z_eq is not None:
             print("  Z_eq calculada = %s" % _fmt(circuito.z_eq))
         faltan = _diagnostico(circuito)
@@ -566,6 +705,9 @@ def _ejecutar_comando(circuito, linea):
         return
 
     if cmd in ("vl", "vlinea", "tension-linea"):
+        if _es_mono(circuito):
+            print("  En modo monofasico no hay tension de linea/fase; use 'vf'.")
+            return
         if circuito.resultado is None:
             print("  ERROR: resuelva el circuito primero con 'resolver'.")
             return
@@ -579,16 +721,20 @@ def _ejecutar_comando(circuito, linea):
             print("  ERROR: resuelva el circuito primero con 'resolver'.")
             return
         r = circuito.resultado
-        print("  V_f fuente = %s" % _fasor(r.v_fuente_fase))
-        print("  V_f carga  = %s" % _fasor(r.v_carga))
+        if _es_mono(circuito):
+            print("  V fuente = %s" % _fasor(r.v_fuente))
+            print("  V carga  = %s" % _fasor(r.v_carga))
+        else:
+            print("  V_f fuente = %s" % _fasor(r.v_fuente_fase))
+            print("  V_f carga  = %s" % _fasor(r.v_carga))
         return
 
     if cmd in ("il", "icorriente-linea", "corriente-linea"):
         if circuito.resultado is None:
             print("  ERROR: resuelva el circuito primero con 'resolver'.")
             return
-        print("  I_L = %s  (|I| = %.4f A)" % (_fasor(circuito.resultado.i_linea),
-                                              abs(circuito.resultado.i_linea)))
+        print("  I = %s  (|I| = %.4f A)" % (_fasor(circuito.resultado.i_linea),
+                                            abs(circuito.resultado.i_linea)))
         return
 
     if cmd in ("if", "corriente-fase", "ifase"):
@@ -596,10 +742,14 @@ def _ejecutar_comando(circuito, linea):
             print("  ERROR: resuelva el circuito primero con 'resolver'.")
             return
         r = circuito.resultado
-        print("  Corrientes de fase por carga:")
+        print("  Corrientes por carga:")
         for c in r.cargas:
-            print("    C%d (%s): I_f = %s  (|I| = %.4f A)"
-                  % (c["id"], c["conexion"], _fasor(c["i_fase"]), abs(c["i_fase"])))
+            if _es_mono(circuito):
+                print("    C%d: I = %s  (|I| = %.4f A)"
+                      % (c["id"], _fasor(c["i"]), abs(c["i"])))
+            else:
+                print("    C%d (%s): I_f = %s  (|I| = %.4f A)"
+                      % (c["id"], c["conexion"], _fasor(c["i_fase"]), abs(c["i_fase"])))
         return
 
     if cmd in ("s", "potencia", "poder"):
@@ -607,7 +757,8 @@ def _ejecutar_comando(circuito, linea):
             print("  ERROR: resuelva el circuito primero con 'resolver'.")
             return
         r = circuito.resultado
-        print("  S    = %s" % _fmt(r.s3f))
+        s_total = r.s if _es_mono(circuito) else r.s3f
+        print("  S    = %s" % _fmt(s_total))
         print("  P    = %.4f W" % r.P)
         print("  Q    = %.4f var" % r.Q)
         print("  |S|  = %.4f VA" % r.Sabs)
@@ -631,6 +782,16 @@ def _ejecutar_comando(circuito, linea):
                 error_analizador("circuito", "argumentos",
                                  "Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
             c = r.cargas[idx - 1]
+            if _es_mono(circuito):
+                print("  C%d: Z = %s" % (c["id"], _fmt(c["z"])))
+                print("    V = %s" % _fasor(c["v"]))
+                print("    I = %s  (|I| = %.4f A)" % (_fasor(c["i"]), abs(c["i"])))
+                print("    S = %s" % _fmt(c["s"]))
+                print("    P = %.4f W ;  Q = %.4f var ;  |S| = %.4f VA"
+                      % (c["P"], c["Q"], c["Sabs"]))
+                print("    FP = %.4f (%s), phi = %.4f deg"
+                      % (c["fp"], c["type"], c["phi_deg"]))
+                return
             print("  C%d (%s): Z_fase = %s -> Z_Y = %s"
                   % (c["id"], c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
             print("    V_f = %s" % _fasor(c["v_fase"]))
@@ -656,10 +817,10 @@ def _ejecutar_comando(circuito, linea):
 
 
 _COMANDOS_VALIDOS = [
-    "fuente", "corriente", "vcarga", "linea", "carga", "add", "pcarga",
-    "cargas", "limpiar", "resolver", "solve", "reporte", "variables",
-    "vl", "vf", "il", "if", "s", "potencia", "detalle", "ver", "ayuda",
-    "salir", "exit", "quit",
+    "modo", "fuente", "corriente", "vcarga", "linea", "carga", "add",
+    "pcarga", "cargas", "limpiar", "resolver", "solve", "reporte",
+    "variables", "vl", "vf", "il", "if", "s", "potencia", "detalle", "ver",
+    "ayuda", "salir", "exit", "quit",
 ]
 
 
