@@ -4,12 +4,12 @@ Equivalente a ``main.m``: muestra un menú principal agrupado por temas y
 delega en cada módulo.
 """
 
-from .menus import (menu_circuito_trifasico, menu_circuitos,
-                    menu_componentes, menu_correccion_fp, menu_cortocircuito,
-                    menu_estabilidad, menu_flujo_carga, menu_flujo_potencia,
-                    menu_maquinas, menu_per_unit, menu_potencia_compleja,
-                    menu_taller, menu_transformador, menu_trifasico)
-from .asistente import consola
+from .gui.menus import (menu_circuito_trifasico, menu_circuitos,
+                        menu_componentes, menu_correccion_fp, menu_cortocircuito,
+                        menu_estabilidad, menu_flujo_carga, menu_flujo_potencia,
+                        menu_maquinas, menu_per_unit, menu_potencia_compleja,
+                        menu_taller, menu_transformador, menu_trifasico)
+from .services.asistente import consola
 
 _OPCIONES = [
     # (clave, descripcion, handler)

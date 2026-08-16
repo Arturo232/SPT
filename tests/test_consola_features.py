@@ -3,8 +3,8 @@
 import os
 from unittest.mock import patch
 
-from analizador.asistente import SesionConsola, _ejecutar_comando
-from analizador.circuito import CircuitoTrifasico, CircuitoMonofasico
+from analizador.services.asistente import SesionConsola, _ejecutar_comando
+from analizador.core.circuito import CircuitoTrifasico, CircuitoMonofasico
 
 
 def test_pcarga_con_v_nominal_tri():

@@ -13,6 +13,8 @@ dependencies = [
     "scipy>=1.10",
     "matplotlib>=3.7",
     "customtkinter>=5.2",
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +25,7 @@ dev = [
 ]
 
 [project.scripts]
-analizador = "analizador.main:main"
+analizador = "analizador.cli.console:main"
 analizador-gui = "analizador.gui.app:main"
 
 [tool.setuptools.packages.find]

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import customtkinter as ctk
 
 from ..components import Card, LabeledEntry, StatusFeedback, leer_float
-from ...resolver import resolver_calculo
+from ...core.resolver import resolver_calculo
 
 _TIPOS = {"Inductiva (atraso)": "inductiva",
           "Capacitiva (adelanto)": "capacitiva",

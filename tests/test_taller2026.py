@@ -4,8 +4,8 @@ Equivalente a ``tests/testTaller2026.m``. Los ejercicios solo consumen
 funciones generales y se validan contra valores de referencia.
 """
 
-from analizador.exercises import (exercise01, exercise02, exercise03,
-                                  exercise04, exercise05)
+from analizador.core.exercises import (exercise01, exercise02, exercise03,
+                                     exercise04, exercise05)
 
 
 def test_ejercicio1():

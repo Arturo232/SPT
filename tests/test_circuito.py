@@ -4,9 +4,9 @@ import math
 
 import numpy as np
 
-from analizador.asistente import (_ejecutar_comando, SesionConsola,
-                                  parse_complejo)
-from analizador.circuito import CircuitoMonofasico, CircuitoTrifasico
+from analizador.services.asistente import (_ejecutar_comando, SesionConsola,
+                                            parse_complejo)
+from analizador.core.circuito import CircuitoMonofasico, CircuitoTrifasico
 from analizador.errors import AnalizadorError
 
 from .conftest import raises_codigo
@@ -332,7 +332,7 @@ def test_consola_ayuda_y_salida():
 
 def test_parse_impedancia_polar():
     """Impedancia en forma polar: M angulo A."""
-    from analizador.asistente import parse_impedancia
+    from analizador.services.asistente import parse_impedancia
     import cmath
     z = parse_impedancia(["30", "angulo", "53.13"])
     esperado = 30 * (math.cos(math.radians(53.13)) + 1j * math.sin(math.radians(53.13)))
@@ -344,7 +344,7 @@ def test_parse_impedancia_polar():
 
 def test_parse_impedancia_rx():
     """Impedancia por R y X separados."""
-    from analizador.asistente import parse_impedancia
+    from analizador.services.asistente import parse_impedancia
     z = parse_impedancia(["10", "20"])
     assert abs(z - (10 + 20j)) < 1e-9
     z2 = parse_impedancia(["-0.2", "0.05"])
@@ -416,7 +416,7 @@ def test_comandos_variantes():
 
 def test_diagnostico_faltan_datos():
     """El diagnostico indica que datos faltan para resolver."""
-    from analizador.asistente import _diagnostico
+    from analizador.services.asistente import _diagnostico
     c = CircuitoTrifasico()
     faltan = _diagnostico(c)
     assert any("fuente" in f for f in faltan)
@@ -434,7 +434,7 @@ def test_diagnostico_faltan_datos():
 def test_consola_no_se_rompe_con_errores():
     """La consola captura errores y sigue funcionando (no lanza)."""
     from unittest.mock import patch
-    from analizador.asistente import consola
+    from analizador.services.asistente import consola
     # mezcla de errores y comandos validos; 'zzz' no debe cortar la consola
     cmds = ["zzz", "fuente 208", "carga Y 30+40j", "resolver", "salir"]
     with patch("builtins.input", side_effect=cmds):

@@ -9,7 +9,7 @@ import customtkinter as ctk
 
 from ..components import (Card, LabeledEntry, StatusFeedback, leer_float,
                           leer_float_opcional)
-from ...circuito import CircuitoMonofasico, CircuitoTrifasico
+from ...core.circuito import CircuitoMonofasico, CircuitoTrifasico
 from ...errors import AnalizadorError
 
 

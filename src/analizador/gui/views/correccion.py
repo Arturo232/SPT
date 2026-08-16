@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import customtkinter as ctk
 
 from ..components import Card, LabeledEntry, StatusFeedback, leer_float
-from ...resolver import resolver_calculo
+from ...core.resolver import resolver_calculo
 
 
 class CorreccionView(ctk.CTkFrame):

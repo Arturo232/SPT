@@ -10,8 +10,8 @@ SPT es un analizador y calculador modular de **Sistemas Eléctricos de Potencia 
 - Núcleo de cálculo numérico puro (fórmulas analíticas, matrices de admitancia, flujos de carga, fallas, estabilidad).
 - Capa de servicios desacoplada con contratos de datos y metadatos pedagógicos (`.meta`).
 - Interfaces múltiples sobre el mismo backend:
-  - **Consola interactiva / REPL** (`analizador.asistente.consola`).
-  - **Menús interactivos CLI** (`analizador.menus` / `analizador.main`).
+  - **Consola interactiva / REPL** (`analizador.services.asistente.consola`).
+  - **Menús interactivos CLI** (`analizador.gui.menus` / `analizador.main`).
   - **Interfaz gráfica de usuario (GUI)** en CustomTkinter (`analizador.gui`).
 
 ---
@@ -22,22 +22,42 @@ El proyecto sigue una estricta **arquitectura en capas**:
 
 ```
 src/analizador/
-├── core.py             # Funciones matemáticas elementales (puras, sin prints)
-├── modules/            # Módulos de dominio por tema de SEP (puros)
-├── services.py         # Fachadas / Servicios que orquestan cálculos y devuelven contratos + .meta
-├── errors.py           # Excepciones estructuradas (AnalizadorError)
-├── config.py           # Configuración general y catálogo de errores
-├── utils.py            # Formateo de fasores/potencias, helpers de entrada y exportadores
-├── viz.py              # Gráficos con matplotlib (fasores polares y triángulos P-Q-S)
-├── circuito.py         # Estado de red y resolución de circuitos (1f y 3f)
-├── asistente.py        # Wizard paso a paso y consola de comandos (REPL)
-├── gui/                # Interfaz gráfica moderna con CustomTkinter
-└── exercises.py        # Ejercicios verificados del Taller 2026 y ejemplos
+├── __init__.py
+├── main.py                  # Punto de entrada principal (CLI)
+├── config.py                # Configuración general y catálogo de errores
+├── errors.py                # Excepciones estructuradas (AnalizadorError)
+├── utils.py                 # Formateo de fasores/potencias, helpers de entrada y exportadores
+│
+├── core/                    # MODELO: lógica matemática y de dominio pura
+│   ├── __init__.py          # Re-exporta base, circuito, resolver y exercises
+│   ├── base.py              # Funciones matemáticas elementales (puras, sin prints)
+│   ├── circuito.py          # Estado de red y resolución de circuitos (1f y 3f)
+│   ├── resolver.py          # Resolución de cálculos para la GUI
+│   └── exercises.py         # Ejercicios verificados del Taller 2026 y ejemplos
+│
+├── gui/                     # VISTA: componentes visuales y renderizado
+│   ├── __init__.py
+│   ├── app.py               # Ventana principal de la GUI
+│   ├── components.py        # Componentes reutilizables
+│   ├── views/               # Vistas por tema
+│   ├── menus.py             # Menús interactivos CLI
+│   └── viz.py               # Gráficos con matplotlib (fasores polares y triángulos P-Q-S)
+│
+├── controllers/             # CONTROLADOR: enlace entre GUI y Core
+│   └── __init__.py          # Reservado para futuros controladores
+│
+├── services/                # SERVICIOS: fachadas y asistentes
+│   ├── __init__.py          # Re-exporta las fachadas service_*
+│   ├── asistente.py         # Wizard paso a paso y consola de comandos (REPL)
+│   └── services.py          # Fachadas que orquestan cálculos y devuelven contratos + .meta
+│
+└── modules/                 # Módulos de dominio por tema de SEP (puros)
+    └── ...
 ```
 
 ### Reglas Críticas para Agentes:
 1. **Separación de Lógica y Presentación:**
-   - NUNCA agregar llamadas a `print()` o `input()` dentro de `core.py`, `modules/*.py`, `services.py` o `circuito.py`.
+   - NUNCA agregar llamadas a `print()` o `input()` dentro de `core/`, `modules/*.py`, `services/` o `controllers/`.
    - Las funciones de cálculo devuelven números, arreglos de `numpy` o `SimpleNamespace` con los resultados.
 2. **Convención de Signos Eléctricos Estándar:**
    - Potencia compleja: $S = V \cdot I^*$
@@ -48,7 +68,7 @@ src/analizador/
    - Usar `error_analizador(modulo, codigo, formato, *args)` que lanza `AnalizadorError` con identificador `analizador:<modulo>:<codigo>`.
    - Registrar los códigos de error canónicos en `config.py` (`mensajes()`).
 4. **Validación de Entradas:**
-   - Usar `validate_input(kind, value, name)` en `core.py` para verificar tipos numéricos, factores de potencia válidos ($0 \le \text{FP} \le 1$), valores no nulos y frecuencias positivas.
+   - Usar `validate_input(kind, value, name)` en `core.base` para verificar tipos numéricos, factores de potencia válidos ($0 \le \text{FP} \le 1$), valores no nulos y frecuencias positivas.
 
 ---
 

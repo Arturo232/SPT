@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from .config import default_config
-from .core import power_factor, rad2deg, validate_input
+from .core.base import power_factor, rad2deg, validate_input
 from .errors import error_analizador
 
 
@@ -272,7 +272,7 @@ def _leer_choice(prompt, opciones):
 
 
 def _leer_complejo(prompt):
-    from .core import polar_to_complex
+    from .core.base import polar_to_complex
     print(prompt)
     mag = _leer_positivo("  Magnitud:")
     ang = _leer_numero("  Angulo (grados):")

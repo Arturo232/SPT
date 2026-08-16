@@ -8,7 +8,7 @@ import numpy as np
 
 from analizador.services import service_analizar_carga
 from analizador.utils import export_results, format_complex, format_power
-from analizador.viz import phasor_plot, power_triangle
+from analizador.gui.viz import phasor_plot, power_triangle
 
 
 def test_format_complex():

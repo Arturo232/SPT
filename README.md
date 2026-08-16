@@ -27,20 +27,33 @@ pip install -e .[dev]
 ## ¿Cómo abrir el programa?
 
 ```bash
-analizador          # menú CLI interactivo
+analizador          # consola interactiva REPL (experiencia por defecto)
 analizador-gui      # interfaz gráfica (customtkinter, modo oscuro)
 python -m analizador
 ```
 
-En el menú principal:
+Al iniciar, se muestra un **banner de bienvenida** en arte ASCII y se entra
+en una **consola interactiva (REPL)** con autocompletado, navegación de
+historial y comandos asistidos (al estilo Claude Code). Escriba `help` para
+ver los comandos:
 
 ```
- C. Consola de comandos (monofasico y trifasico)  <-- recomendado
- A. Asistente guiado de circuito trifasico
- 1..12. Modulos tematicos
- T. Ejercicios del Taller 2026
- H. Ayuda / como usar
+SPT> help
 ```
+
+| Comando | Acción |
+|---|---|
+| `menu` / `legacy` | Abre el menú clásico navegable. |
+| `gui` | Abre la interfaz gráfica. |
+| `circuito` / `consola` | Consola de circuitos (mono/tri). |
+| `potencia`, `correccion`, `flujo`, `trifasico`, `per-unit` | Cálculos asistidos paso a paso. |
+| `taller` / `ejercicios` | Ejercicios del Taller 2026. |
+| `modulos` | Lista los módulos temáticos. |
+| `banner`, `version`, `help` | Presentación, versión y ayuda. |
+| `salir` / `exit` / `quit` / `0` | Sale de la consola. |
+
+El menú clásico anterior sigue disponible como `python -m analizador.main` o
+con el comando `menu` dentro de la REPL.
 
 ---
 
@@ -60,8 +73,8 @@ defecto) con:
 - **Feedback visual inmediato**: barra de estado con mensajes de éxito
   (verde) o error (rojo) y barra de progreso.
 - **Validación de entradas** con placeholders y alertas visuales.
-- **Desacoplamiento**: la GUI solo invoca al backend (`services`,
-  `resolver`, `circuito`); los resultados son idénticos a la consola.
+- **Desacoplamiento**: la GUI solo invoca al backend (`analizador.services`,
+  `analizador.core.resolver`, `analizador.core.circuito`); los resultados son idénticos a la consola.
 
 ---
 
@@ -166,19 +179,32 @@ print(r.P, r.Q, r.fp)         # W, var, factor de potencia
 
 ```text
 analizador/
-├── main.py          # Punto de entrada (menú principal, opción C/A/1-13)
-├── gui/             # Interfaz gráfica (customtkinter: app, components, views)
-├── circuito.py      # CircuitoTrifasico y CircuitoMonofasico (estado de red)
-├── asistente.py     # Consola de comandos (mono/tri) y asistente guiado
-├── core.py          # Núcleo matemático (V, I, Z, Y, S, FP, validaciones)
-├── errors.py        # Error analizador (analizador:<modulo>:<codigo>)
-├── config.py        # Configuración por defecto + catálogo de mensajes
-├── modules/         # Un tema del curso por módulo (funciones puras)
-├── services.py      # Capa de servicios (fachadas, contratos + .meta)
-├── utils.py         # Entrada, formateo, presentación, exportación
-├── viz.py           # Gráficas (fasores, triángulo de potencias)
-├── exercises.py     # Ejercicios del taller 2026 + ejemplos
-└── resolver.py      # Lógica pura de la GUI
+├── main.py                  # Punto de entrada (menú principal, opción C/A/1-13)
+├── config.py                # Configuración por defecto + catálogo de mensajes
+├── errors.py                # Error analizador (analizador:<modulo>:<codigo>)
+├── utils.py                 # Entrada, formateo, presentación, exportación
+│
+├── core/                    # MODELO: lógica matemática y de dominio puro
+│   ├── base.py              # Núcleo matemático (V, I, Z, Y, S, FP, validaciones)
+│   ├── circuito.py          # CircuitoTrifasico y CircuitoMonofasico (estado de red)
+│   ├── resolver.py          # Lógica pura de la GUI
+│   └── exercises.py         # Ejercicios del taller 2026 + ejemplos
+│
+├── gui/                     # VISTA: interfaz gráfica y presentación
+│   ├── app.py               # Ventana principal (customtkinter)
+│   ├── components.py        # Componentes reutilizables
+│   ├── views/               # Vistas por tema
+│   ├── menus.py             # Menús interactivos CLI
+│   └── viz.py               # Gráficas (fasores, triángulo de potencias)
+│
+├── controllers/             # CONTROLADOR: enlace entre GUI y Core
+│   └── __init__.py          # Reservado para futuros controladores
+│
+├── services/                # SERVICIOS: fachadas y asistentes
+│   ├── services.py          # Capa de servicios (fachadas, contratos + .meta)
+│   └── asistente.py         # Consola de comandos (mono/tri) y asistente guiado
+│
+└── modules/                 # Un tema del curso por módulo (funciones puras)
 ```
 
 ---

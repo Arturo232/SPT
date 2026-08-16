@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from analizador.resolver import resolver_calculo
+from analizador.core.resolver import resolver_calculo
 
 
 def test_potencia_pf():
