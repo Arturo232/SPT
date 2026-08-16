@@ -7,6 +7,7 @@ cadenas); las de presentación imprimen por consola.
 import csv
 import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -397,6 +398,22 @@ def _escribir_tabla(result, archivo):
             writer.writerow([nombre, valor])
 
 
+def resolve_export_path(archivo: str | Path) -> Path:
+    """Resuelve la ruta final de un archivo de exportación.
+
+    - Rutas absolutas se respetan tal cual.
+    - Rutas relativas se combinan con ``export_dir()``.
+    - Crea los directorios intermedios necesarios.
+    """
+    from .config import export_dir
+
+    ruta = Path(archivo)
+    if not ruta.is_absolute():
+        ruta = export_dir() / ruta
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    return ruta
+
+
 def export_results(result, archivo, formato=None):
     """Exporta una estructura de resultados a un archivo.
 
@@ -408,23 +425,25 @@ def export_results(result, archivo, formato=None):
         error_analizador("presentacion", "noEstructura",
                          "Error: se espera una estructura de resultados.")
     import os
+    ruta = resolve_export_path(archivo)
+    archivo_str = str(ruta)
     if formato is None:
-        ext = os.path.splitext(archivo)[1].lower()
+        ext = os.path.splitext(archivo_str)[1].lower()
         formato = {".txt": "txt", ".csv": "csv", ".json": "json",
                    ".xlsx": "xlsx", ".xls": "xlsx"}.get(ext, "txt")
-    ext = os.path.splitext(archivo)[1]
+    ext = os.path.splitext(archivo_str)[1]
     if not ext:
-        archivo = archivo + "." + formato.lower()
+        archivo_str = archivo_str + "." + formato.lower()
 
     fmt = formato.lower()
     if fmt == "txt":
-        _escribir_texto(archivo, format_results(result))
+        _escribir_texto(archivo_str, format_results(result))
     elif fmt == "json":
-        _escribir_texto(archivo, json.dumps(
+        _escribir_texto(archivo_str, json.dumps(
             _serializar_para_json(result), ensure_ascii=False, indent=2))
     elif fmt in ("csv", "xlsx"):
-        _escribir_tabla(result, archivo)
+        _escribir_tabla(result, archivo_str)
     else:
         error_analizador("presentacion", "formatoInvalido",
                          "Error: formato no soportado: %s.", formato)
-    return archivo
+    return archivo_str

@@ -108,7 +108,7 @@ def menu_potencia_compleja():
         from .utils import export_results
         formato = input_helpers("choice", "Formato:", ["TXT", "JSON", "CSV", "Excel"])
         formatos = ["txt", "json", "csv", "xlsx"]
-        nombre = input("  Archivo (sin extension): ").strip()
+        nombre = input("  Archivo (sin extension, se guardara en resultados/): ").strip()
         archivo = export_results(result, nombre, formatos[formato - 1])
         print("  Exportado: %s" % archivo)
 

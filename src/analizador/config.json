@@ -2,5 +2,6 @@
   "frequency": 60,
   "decimals": 4,
   "tolerance": 1e-6,
-  "language": "es"
+  "language": "es",
+  "export_dir": "resultados"
 }

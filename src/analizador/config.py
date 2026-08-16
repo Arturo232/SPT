@@ -87,6 +87,38 @@ def mensajes() -> dict[str, str]:
     return catalogo
 
 
+def project_root() -> Path:
+    """Devuelve la raíz del repositorio buscando ``pyproject.toml`` hacia arriba."""
+    aqui = Path(__file__).resolve().parent
+    for ruta in [aqui, *aqui.parents]:
+        if (ruta / "pyproject.toml").is_file():
+            return ruta
+    # Fallback: tres niveles arriba de src/analizador/config.py
+    return aqui.parent.parent.parent
+
+
+def export_dir() -> Path:
+    """Directorio base para exportaciones de resultados.
+
+    Orden de resolución:
+      1. Variable de entorno ``SEP_EXPORT_DIR``.
+      2. Clave ``export_dir`` en ``config.json``.
+      3. ``resultados/`` relativo a la raíz del proyecto.
+
+    Las rutas relativas se resuelven contra ``project_root()``.
+    """
+    raw = os.environ.get("SEP_EXPORT_DIR")
+    if not raw:
+        cfg = default_config()
+        raw = cfg.get("export_dir")
+    if not raw:
+        raw = "resultados"
+    ruta = Path(raw)
+    if not ruta.is_absolute():
+        ruta = project_root() / ruta
+    return ruta
+
+
 def default_config() -> dict[str, Any]:
     """Configuración por defecto de la aplicación.
 
@@ -94,10 +126,11 @@ def default_config() -> dict[str, Any]:
     defecto si el archivo no existe o no puede leerse.
     """
     cfg: dict[str, Any] = {
-        "frequency": 60,      # frecuencia nominal [Hz]
-        "decimals": 4,        # decimales en la presentación
-        "tolerance": 1e-6,    # tolerancia numérica de los tests
-        "language": "es",     # idioma de la interfaz
+        "frequency": 60,       # frecuencia nominal [Hz]
+        "decimals": 4,         # decimales en la presentación
+        "tolerance": 1e-6,     # tolerancia numérica de los tests
+        "language": "es",      # idioma de la interfaz
+        "export_dir": "resultados",  # carpeta base de exportaciones
     }
     ruta = Path(os.environ.get("SEP_CONFIG", str(Path(__file__).parent / "config.json")))
     try:

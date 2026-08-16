@@ -25,3 +25,4 @@ htmlcov/
 
 # Salidas del analizador (exportaciones temporales)
 *.xlsx
+resultados/

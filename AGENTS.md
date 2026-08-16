@@ -52,7 +52,37 @@ src/analizador/
 
 ---
 
-## 3. Entorno de Desarrollo y Comandos Frecuentes
+## 3. Exportación de Resultados
+
+Todas las exportaciones de resultados (TXT, JSON, CSV, XLSX) se centralizan en una carpeta configurable.
+
+- **Carpeta por defecto:** `resultados/` en la raíz del repositorio.
+- **Configuración:**
+  - Variable de entorno `SEP_EXPORT_DIR` (tiene prioridad).
+  - Clave `export_dir` en `src/analizador/config.json`.
+  - Si ambas se omiten, se usa `resultados/`.
+- **Resolución de rutas:**
+  - Rutas absolutas dadas por el usuario se respetan (`/tmp/mi_circuito.csv`).
+  - Rutas relativas simples se guardan en la carpeta base (`mi_circuito` → `resultados/mi_circuito.txt`).
+  - Subcarpetas relativas se crean dentro de la carpeta base (`sub/prueba` → `resultados/sub/prueba.json`).
+- Las carpetas se crean automáticamente si no existen.
+- `resultados/` está incluida en `.gitignore` y no debe versionarse.
+
+Ejemplos:
+```bash
+export SEP_EXPORT_DIR="$HOME/exports_sep"
+analizador
+```
+
+```json
+{
+  "export_dir": "/home/arturo/exports_sep"
+}
+```
+
+---
+
+## 4. Entorno de Desarrollo y Comandos Frecuentes
 
 - **Instalación en modo editable con dependencias de desarrollo:**
   ```bash
@@ -77,7 +107,7 @@ src/analizador/
 
 ---
 
-## 4. Estilo de Código y Buenas Prácticas
+## 5. Estilo de Código y Buenas Prácticas
 
 - Compatible con **Python 3.10+**.
 - Seguir PEP 8. Mantener nombres de funciones claros en español/inglés técnico consistente con la base de código.

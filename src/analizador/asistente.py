@@ -223,7 +223,7 @@ def _ofrecer_exportar(circuito):
         return
     from .utils import export_results
     resultado = circuito.resultado
-    nombre = input("  Archivo (sin extension): ").strip()
+    nombre = input("  Archivo (sin extension, se guardara en resultados/): ").strip()
     formato = input_helpers("choice", "Formato:", ["TXT", "JSON", "CSV"])
     formatos = ["txt", "json", "csv"]
     archivo = export_results(resultado, nombre, formatos[formato - 1])
@@ -844,13 +844,17 @@ def _ejecutar_comando(sesion, linea):
                     formato = ext
         if not archivo:
             modo = sesion.modo
-            archivo = "circuito_%s.%s" % (modo, formato)
-        from .utils import export_results
+            archivo = "circuito_%s" % modo
+        from .utils import export_results, resolve_export_path
         try:
             if formato == "txt":
-                with open(archivo, "w", encoding="utf-8") as fh:
+                ruta = resolve_export_path(archivo)
+                ruta_creada = str(ruta)
+                import os
+                if not os.path.splitext(ruta_creada)[1]:
+                    ruta_creada = ruta_creada + ".txt"
+                with open(ruta_creada, "w", encoding="utf-8") as fh:
                     fh.write(circuito.reporte())
-                ruta_creada = archivo
             else:
                 ruta_creada = export_results(circuito.resultado, archivo, formato)
             print("  Reporte exportado exitosamente a: %s" % ruta_creada)
