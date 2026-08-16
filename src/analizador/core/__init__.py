@@ -8,6 +8,7 @@ imports absolutos existentes (``from analizador.core import ...``).
 from .base import (
     admittance_from_impedance,
     apparent_power,
+    balance_potencias,
     complex_power,
     complex_to_polar,
     current_from_power,
@@ -37,6 +38,7 @@ from .resolver import resolver_calculo
 __all__ = [
     "admittance_from_impedance",
     "apparent_power",
+    "balance_potencias",
     "complex_power",
     "complex_to_polar",
     "current_from_power",

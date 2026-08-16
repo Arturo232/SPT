@@ -296,15 +296,24 @@ def _parse_red_args(args: list[str]):
       --lineas <Z>...          Varios tramos de impedancia de línea (se suman).
       --paralelo               Bandera documentada: las cargas ya se reducen
                                en paralelo (no altera el cálculo).
+      --taller                 Desglose académico inciso por inciso.
+      --resolver-incisos       Alias de ``--taller``.
+      --carga-fp <n>           Índice de la carga a corregir en FP (default 1).
+      --fp <objetivo>          FP objetivo en atraso para la corrección
+                               (default 0.8).
 
     Cada valor complejo acepta rectangular ``a+jb`` o polar ``M[ángulo]``.
-    Regresa ``SimpleNamespace(fuente, fuente_tipo, cargas, lineas, paralelo)``.
+    Regresa ``SimpleNamespace(fuente, fuente_tipo, cargas, lineas, paralelo,
+    taller, carga_fp, fp_objetivo)``.
     """
     fuente = None
     fuente_tipo = "L"
     cargas: list[tuple[str, complex]] = []
     lineas: list[complex] = []
     paralelo = False
+    taller = False
+    carga_fp = 1
+    fp_objetivo = 0.8
 
     i = 0
     n = len(args)
@@ -346,13 +355,38 @@ def _parse_red_args(args: list[str]):
             elif nombre == "--paralelo":
                 paralelo = True
                 i += 1
+            elif nombre in ("--taller", "--resolver-incisos"):
+                taller = True
+                i += 1
+            elif nombre == "--carga-fp":
+                if i + 1 >= n:
+                    raise ValueError("falta el valor de --carga-fp")
+                try:
+                    carga_fp = int(args[i + 1])
+                except ValueError:
+                    raise ValueError("--carga-fp debe ser un indice entero")
+                if carga_fp < 1:
+                    raise ValueError("--carga-fp debe ser >= 1")
+                i += 2
+            elif nombre == "--fp":
+                if i + 1 >= n:
+                    raise ValueError("falta el valor de --fp")
+                try:
+                    fp_objetivo = float(args[i + 1])
+                except ValueError:
+                    raise ValueError("--fp debe ser un numero")
+                if not (0.0 < fp_objetivo <= 1.0):
+                    raise ValueError("--fp debe estar entre 0 y 1")
+                i += 2
             else:
                 raise ValueError(f"opcion desconocida: '{tok}'")
         else:
             raise ValueError(f"argumento inesperado: '{tok}'. "
                              "Use --fuente, --cargas, --linea/--lineas.")
     return SimpleNamespace(fuente=fuente, fuente_tipo=fuente_tipo,
-                           cargas=cargas, lineas=lineas, paralelo=paralelo)
+                           cargas=cargas, lineas=lineas, paralelo=paralelo,
+                           taller=taller, carga_fp=carga_fp,
+                           fp_objetivo=fp_objetivo)
 
 
 def _aplicar_fuente(circuito, fuente: complex, fuente_tipo: str) -> dict:
@@ -405,6 +439,45 @@ def _angulo_grados(z) -> float:
 def _sqrt3() -> float:
     import math
     return math.sqrt(3)
+
+
+def _potencia_3f_por_linea(v_ll, i_l):
+    """``S_3f = sqrt(3) * V_LL * conj(I_L)`` (valores de línea)."""
+    return _sqrt3() * v_ll * (i_l.conjugate() if hasattr(i_l, "conjugate") else i_l)
+
+
+def _admitancia_equivalente(z_eq):
+    """Admitancia equivalente ``Y = 1/Z = G + jB`` [S].
+
+    Regresa ``(Y, G, B)``.
+    """
+    if z_eq == 0:
+        raise ValueError("impedancia equivalente cero")
+    y = 1 / z_eq
+    return y, y.real, y.imag
+
+
+def _potencia_linea(v_caida, i_linea):
+    """Potencia disipada en la línea: ``S = V_caida * conj(I)``."""
+    return v_caida * (i_linea.conjugate() if hasattr(i_linea, "conjugate") else i_linea)
+
+
+def _eficiencia(p_cargas, p_fuente):
+    """Eficiencia de transmisión: ``eta = P_cargas / P_fuente * 100``."""
+    if abs(p_fuente) < 1e-12:
+        return float("nan")
+    return p_cargas / p_fuente * 100.0
+
+
+def _regulacion_voltaje(v_carga_linea, v_fuente_linea):
+    """Regulación de voltaje en bornes: ``RV = (V_sin_carga - V_plena)/V_plena``.
+
+    Aquí ``V_sin_carga`` se aproxima con la tensión de la fuente en vacío
+    (``v_fuente_linea``) y ``V_plena`` con la de la carga.
+    """
+    if abs(v_carga_linea) < 1e-12:
+        return float("nan")
+    return (abs(v_fuente_linea) - abs(v_carga_linea)) / abs(v_carga_linea) * 100.0
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +749,410 @@ def _renderizar_panel_interpretativo(consola: Console, circuito, res,
         Panel(contenido, title="6. Interpretación técnica",
               border_style="bright_magenta", expand=True)
     )
+
+
+def _bloque_inciso(consola, letra: str, titulo: str, formula: str,
+                   sustitucion: str, resultado_rect, resultado_polar) -> None:
+    """Renderiza un inciso académico en un panel rich independiente."""
+    cuerpo = Text()
+    cuerpo.append(f"Fórmula:  ", style="bold")
+    cuerpo.append(formula, style="italic cyan")
+    cuerpo.append("\n")
+    cuerpo.append(f"Sustitución:  ", style="bold")
+    cuerpo.append(sustitucion, style="yellow")
+    cuerpo.append("\n")
+    cuerpo.append(f"Resultado:  ", style="bold")
+    cuerpo.append(resultado_rect, style="green")
+    cuerpo.append(f"   =   {resultado_polar}", style="dim")
+    consola.print(
+        Panel(cuerpo, title=f"Inciso ({letra}) — {titulo}",
+              border_style="blue", expand=True))
+
+
+def _bloque_texto(consola, titulo: str, cuerpo: str, border="blue") -> None:
+    """Renderiza un bloque de texto/interpretación en un panel rich."""
+    consola.print(
+        Panel(cuerpo, title=titulo, border_style=border, expand=True))
+
+
+# Estado de sesión: último circuito resuelto (para comandos como graficar).
+_ULTIMO_RESULTADO: dict | None = None
+
+
+def _guardar_ultimo_resultado(circuito, res, es_tri, datos=None) -> None:
+    """Guarda el último circuito resuelto para reutilizarlo después."""
+    global _ULTIMO_RESULTADO
+    _ULTIMO_RESULTADO = {
+        "circuito": circuito, "res": res, "es_tri": es_tri, "datos": datos,
+    }
+
+
+def _ultimo_resultado(consola):
+    """Devuelve el último resultado guardado o muestra un error si no hay."""
+    if _ULTIMO_RESULTADO is None:
+        consola.print(
+            "[red]No hay resultado previo. Resuelva un circuito primero con "
+            "'trifasico' o 'monofasico'.[/]")
+        return None
+    return _ULTIMO_RESULTADO
+
+
+def _graficar_fasores(consola, etiquetas, fasores, titulo) -> None:
+    """Prepara un diagrama fasorial sin abrir ventana emergente.
+
+    Solo notifica que el diagrama quedó listo; el usuario lo visualiza con
+    el comando ``graficar``/``fasores`` (evita bloquear la resolución).
+    """
+    try:
+        from analizador.gui.viz import phasor_plot
+
+        phasor_plot(fasores, etiquetas=etiquetas, titulo=titulo)
+        consola.print(
+            f"[dim]Diagrama '{titulo}' preparado. Use 'graficar' o 'fasores' "
+            "para visualizarlo.[/]"
+        )
+        import matplotlib.pyplot as plt
+        plt.close("all")
+    except Exception as err:
+        consola.print(f"[red]No se pudo preparar el diagrama: {err}[/]")
+
+
+def _resolver_academico(consola, circuito, res, es_tri: bool, datos) -> None:
+    """Desglose académico inciso por inciso (a)-(j) + análisis extendido.
+
+    ``datos`` es el ``SimpleNamespace`` devuelto por ``_parse_red_args``
+    (contiene ``carga_fp`` y ``fp_objetivo``).
+    """
+    consola.print(
+        Panel("[bold]Resolución académica inciso por inciso[/]",
+              title="Modo taller", border_style="bright_cyan", expand=True)
+    )
+
+    if es_tri:
+        _incisos_trifasico(consola, circuito, res, datos)
+    else:
+        _incisos_monofasico(consola, circuito, res, datos)
+
+    _analisis_extendido(consola, circuito, res, es_tri)
+
+
+def _incisos_trifasico(consola, circuito, res, datos) -> None:
+    """Incisos (a)-(j) para el sistema trifásico balanceado."""
+    import numpy as np
+    import math
+
+    # (a) Corriente de la fuente
+    i_l = res.i_linea
+    _bloque_inciso(
+        consola, "a", "Corriente de la fuente",
+        "I_L = V_fuente / Z_total",
+        f"V_fuente = {_fmt_complejo(res.v_fuente_fase)} ; "
+        f"Z_total = {_fmt_complejo(res.z_total)}",
+        _fmt_complejo(i_l), _fmt_polar(i_l),
+    )
+
+    # (b) Potencia compleja por valores de fase
+    s3f_fase = res.s3f  # ya es 3*V_f*conj(I_f)
+    _bloque_inciso(
+        consola, "b", "Potencia compleja total (valores de fase)",
+        "S_3f = 3 * V_f * conj(I_f)",
+        f"3 * {_fmt_complejo(res.v_fuente_fase)} * conj({_fmt_complejo(i_l)})",
+        _fmt_complejo(s3f_fase), _fmt_polar(s3f_fase),
+    )
+
+    # (c) Potencia compleja por valores de línea
+    v_ll_fasor = res.v_fuente_linea
+    s3f_linea = _potencia_3f_por_linea(v_ll_fasor, i_l)
+    _bloque_inciso(
+        consola, "c", "Potencia compleja total (valores de línea)",
+        "S_3f = sqrt(3) * V_L * conj(I_L)",
+        f"sqrt(3) * {_fmt_complejo(v_ll_fasor)} * conj({_fmt_complejo(i_l)})",
+        _fmt_complejo(s3f_linea), _fmt_polar(s3f_linea),
+    )
+
+    # (d) Tensión de línea en el nodo de las cargas
+    v_ll_carga = res.v_carga_linea
+    _bloque_inciso(
+        consola, "d", "Tensión de línea en el nodo de cargas",
+        "V_LL_carga = |V_f_carga| * sqrt(3)",
+        f"|{_fmt_complejo(res.v_carga)}| * sqrt(3)",
+        f"{v_ll_carga:.4g} V", f"{v_ll_carga:.4g} V rms",
+    )
+
+    # (e) Fasorial de tensiones en Estrella (por carga, primeras en Y)
+    van_etiquetas = []
+    van_fasores = []
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Y":
+            van, vbn, vcn = _fasores_abc(c["v_fase"])
+            van_etiquetas += [f"C{k} Van", f"C{k} Vbn", f"C{k} Vcn"]
+            van_fasores += [van, vbn, vcn]
+            _bloque_inciso(
+                consola, "e", f"Fasorial de tensiones Estrella — carga C{k}",
+                "V_an = V_f ; V_bn = V_an/-120 ; V_cn = V_an/120",
+                f"V_f = {_fmt_complejo(c['v_fase'])}",
+                f"{_fmt_complejo(van)} | {_fmt_complejo(vbn)} | {_fmt_complejo(vcn)}",
+                f"{_fmt_polar(van)} | {_fmt_polar(vbn)} | {_fmt_polar(vcn)}",
+            )
+    if van_fasores:
+        _graficar_fasores(consola, van_etiquetas, van_fasores,
+                          "Fasorial de tensiones (Estrella)")
+
+    # (f) Corriente por fase de cada carga
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Y":
+            formula = "I_f_Y = I_L"
+            sustit = f"I_L = {_fmt_complejo(res.i_linea)}"
+            etiq = "Y"
+        else:
+            formula = "I_f_Delta = I_L * exp(j30)/sqrt(3)"
+            sustit = (f"I_L = {_fmt_complejo(res.i_linea)} ; "
+                      f"sqrt(3) = {_sqrt3():.4g}")
+            etiq = "Delta"
+        _bloque_inciso(
+            consola, "f", f"Corriente por fase — carga C{k} ({etiq})",
+            formula, sustit,
+            _fmt_complejo(c["i_fase"]), _fmt_polar(c["i_fase"]),
+        )
+
+    # (g) Corrientes de malla en Delta
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Delta":
+            iab, ibc, ica = _fasores_abc(c["i_fase"])
+            _bloque_inciso(
+                consola, "g", f"Corrientes de malla Delta — carga C{k}",
+                "I_ab ; I_bc = I_ab/-120 ; I_ca = I_ab/120",
+                f"I_f = {_fmt_complejo(c['i_fase'])}",
+                f"{_fmt_complejo(iab)} | {_fmt_complejo(ibc)} | {_fmt_complejo(ica)}",
+                f"{_fmt_polar(iab)} | {_fmt_polar(ibc)} | {_fmt_polar(ica)}",
+            )
+
+    # (h) Coordenadas para diagrama fasorial de corrientes en Delta
+    delta_etiquetas = []
+    delta_fasores = []
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Delta":
+            iab, ibc, ica = _fasores_abc(c["i_fase"])
+            delta_etiquetas += [f"C{k} Iab", f"C{k} Ibc", f"C{k} Ica"]
+            delta_fasores += [iab, ibc, ica]
+            _bloque_inciso(
+                consola, "h", f"Coordenadas fasoriales de corrientes Delta — carga C{k}",
+                "I_ab ; I_bc ; I_ca",
+                f"I_f = {_fmt_complejo(c['i_fase'])}",
+                f"{_fmt_complejo(iab)} | {_fmt_complejo(ibc)} | {_fmt_complejo(ica)}",
+                f"{_fmt_polar(iab)} | {_fmt_polar(ibc)} | {_fmt_polar(ica)}",
+            )
+    if delta_fasores:
+        _graficar_fasores(consola, delta_etiquetas, delta_fasores,
+                          "Fasorial de corrientes (Delta)")
+
+    # (i) Desglose de P y Q por carga y línea
+    cuerpo = Text()
+    cuerpo.append("Cargas\n", style="bold underline")
+    for k, c in enumerate(res.cargas, start=1):
+        cuerpo.append(
+            f"  C{k}: P = {c['P'] / 1000:.4g} kW ; "
+            f"Q = {c['Q'] / 1000:.4g} kVAR\n")
+    s_linea = res.s_linea
+    cuerpo.append("\nLínea\n", style="bold underline")
+    cuerpo.append(
+        f"  P_perdidas = {s_linea.real / 1000:.4g} kW ; "
+        f"Q_linea = {s_linea.imag / 1000:.4g} kVAR\n")
+    cuerpo.append(
+        f"\nTotal: P = {res.P / 1000:.4g} kW ; "
+        f"Q = {res.Q / 1000:.4g} kVAR\n")
+    if hasattr(res, "balance") and not res.balance.ok:
+        cuerpo.append(
+            f"\n[red]BALANCE: S_fuente = {_fmt_complejo(res.balance.S_fuente)} "
+            f"vs S_consumida = {_fmt_complejo(res.balance.S_total)} "
+            f"(err_rel = {res.balance.err_rel:.4g}).[/]")
+    _bloque_texto(consola, "Inciso (i) — Desglose de potencia P y Q",
+                  cuerpo)
+
+    # (j) Corrección de factor de potencia
+    _inciso_j_correccion_fp(consola, res, datos, es_tri=True)
+
+
+def _inciso_j_correccion_fp(consola, res, datos, es_tri) -> None:
+    """Inciso (j): kVAR requeridos y capacitancia por fase (µF)."""
+    from analizador.modules.correccion_fp import (
+        capacitor_reactance, capacitor_value, required_reactive_power)
+
+    idx = datos.carga_fp - 1
+    if idx < 0 or idx >= len(res.cargas):
+        _bloque_texto(
+            consola, "Inciso (j) — Corrección de factor de potencia",
+            f"[red]Índice de carga {datos.carga_fp} fuera de rango "
+            f"(1..{len(res.cargas)}).[/]")
+        return
+    c = res.cargas[idx]
+    p_carga = c["P"]
+    q_carga = c["Q"]
+    fp_carga = c["fp"]
+    fp_obj = datos.fp_objetivo
+
+    comp = required_reactive_power(p_carga, fp_carga, fp_obj)
+    if comp.Qc <= 1e-12:
+        _bloque_texto(
+            consola, "Inciso (j) — Corrección de factor de potencia",
+            (f"Carga C{datos.carga_fp}: FP actual {fp_carga:.4g} ya es >= "
+             f"objetivo {fp_obj:.4g}. No se requiere compensación "
+             f"(Qc = {comp.Qc / 1000:.4g} kVAR)."))
+        return
+
+    # Tensión en bornes de la carga (fase). Mono usa "v", tri usa "v_fase".
+    v_ln_carga = abs(c["v_fase"] if "v_fase" in c else c["v"])
+    xc = capacitor_reactance(v_ln_carga, comp.Qc)
+    cap = capacitor_value(60.0, xc.Xc)
+
+    cuerpo = Text()
+    cuerpo.append(f"Carga seleccionada: C{datos.carga_fp}\n", style="bold")
+    cuerpo.append(f"  FP actual = {fp_carga:.4g} ; FP objetivo = {fp_obj:.4g}\n")
+    cuerpo.append(
+        f"  P = {p_carga / 1000:.4g} kW ; Q = {q_carga / 1000:.4g} kVAR\n")
+    cuerpo.append(f"  phi1 = {comp.phi1_deg:.4g}° ; phi2 = {comp.phi2_deg:.4g}°\n")
+    cuerpo.append(
+        f"  Q1 = {comp.Q1 / 1000:.4g} kVAR ; Q2 = {comp.Q2 / 1000:.4g} kVAR\n")
+    cuerpo.append(
+        f"  [bold]Qc requerida = {comp.Qc / 1000:.4g} kVAR[/] (capacitiva)\n")
+    cuerpo.append(
+        f"  Tensión por fase (banco Y) V_LN = {v_ln_carga:.4g} V\n")
+    cuerpo.append(f"  Xc = |V^2/Qc| = {xc.Xc:.4g} ohm\n")
+    cuerpo.append(
+        f"  [bold]C = 1/(2*pi*f*Xc) = {cap.C_uF:.4g} uF por fase[/] "
+        f"({cap.C_F * 1e6:.4g} uF)")
+    _bloque_texto(consola, "Inciso (j) — Corrección de factor de potencia",
+                  cuerpo)
+
+
+def _incisos_monofasico(consola, circuito, res, datos) -> None:
+    """Incisos relevantes para el circuito monofásico."""
+    import numpy as np
+
+    i = res.i_linea
+    _bloque_inciso(
+        consola, "a", "Corriente de la fuente",
+        "I = V / Z_total",
+        f"V = {_fmt_complejo(res.v_fuente)} ; Z_total = {_fmt_complejo(res.z_total)}",
+        _fmt_complejo(i), _fmt_polar(i),
+    )
+    s = res.s
+    _bloque_inciso(
+        consola, "b", "Potencia compleja total",
+        "S = V * conj(I)",
+        f"{_fmt_complejo(res.v_fuente)} * conj({_fmt_complejo(i)})",
+        _fmt_complejo(s), _fmt_polar(s),
+    )
+    v_carga = abs(res.v_carga)
+    _bloque_inciso(
+        consola, "d", "Tensión en bornes de la carga",
+        "V_carga = |V_carga|",
+        f"|{_fmt_complejo(res.v_carga)}|",
+        f"{v_carga:.4g} V", f"{v_carga:.4g} V rms",
+    )
+
+    cuerpo = Text()
+    cuerpo.append("Cargas\n", style="bold underline")
+    for k, c in enumerate(res.cargas, start=1):
+        cuerpo.append(
+            f"  C{k}: P = {c['P'] / 1000:.4g} kW ; "
+            f"Q = {c['Q'] / 1000:.4g} kVAR\n")
+    cuerpo.append("\nTotal:\n", style="bold underline")
+    cuerpo.append(
+        f"  P = {res.P / 1000:.4g} kW ; Q = {res.Q / 1000:.4g} kVAR")
+    _bloque_texto(consola, "Inciso (i) — Desglose de potencia P y Q", cuerpo)
+
+    _inciso_j_correccion_fp(consola, res, datos, es_tri=False)
+
+
+def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
+    """Módulo de análisis extendido: Y_eq, pérdidas, eficiencia, RV, LKC."""
+    import numpy as np
+
+    cuerpo = Text()
+
+    # 1) Admitancia equivalente
+    try:
+        y_eq, g, b = _admitancia_equivalente(res.z_eq)
+        signo_b = "capacitiva" if b < 0 else "inductiva"
+        cuerpo.append("Admitancia equivalente\n", style="bold underline")
+        cuerpo.append(
+            f"  Y_eq = 1/Z_eq = {_fmt_complejo(y_eq)} S\n")
+        cuerpo.append(
+            f"  G = {g:.4g} S ; B = {b:.4g} S "
+            f"(B {'< 0' if b < 0 else '> 0'} -> parte "
+            f"[yellow]{signo_b}[/])\n")
+    except Exception as err:
+        cuerpo.append(f"  Y_eq: {err}\n")
+
+    # 2) Pérdidas en la línea
+    s_linea = res.s_linea
+    cuerpo.append("\nPérdidas en la línea\n", style="bold underline")
+    cuerpo.append(
+        f"  P_perdidas = {s_linea.real / 1000:.4g} kW ; "
+        f"Q_linea = {s_linea.imag / 1000:.4g} kVAR\n")
+
+    # 3) Eficiencia de transmisión
+    p_cargas = sum(c["P"] for c in res.cargas)
+    eta = _eficiencia(p_cargas, res.P)
+    cuerpo.append("\nEficiencia de transmisión\n", style="bold underline")
+    cuerpo.append(
+        f"  eta = P_cargas / P_fuente * 100 = {eta:.4g} %\n")
+
+    # 4) Regulación de voltaje en bornes
+    if es_tri:
+        v_carga = res.v_carga_linea
+        v_fuente = res.v_linea
+    else:
+        v_carga = abs(res.v_carga)
+        v_fuente = abs(res.v_fuente)
+    rv = _regulacion_voltaje(v_carga, v_fuente)
+    cuerpo.append("\nRegulación de voltaje\n", style="bold underline")
+    cuerpo.append(
+        f"  RV% = (V_sin_carga - V_plena)/V_plena * 100 = {rv:.4g} %\n")
+
+    # 5) Verificación LKC en el nodo
+    cuerpo.append("\nVerificación LKC en el nodo\n", style="bold underline")
+    if es_tri:
+        suma = sum(c["i_linea"] for c in res.cargas)
+        cuerpo.append(
+            f"  Sum(I_f_Y + I_L_Delta) = {_fmt_complejo(suma)}\n")
+        cuerpo.append(f"  I_linea = {_fmt_complejo(res.i_linea)}\n")
+        diff = abs(suma - res.i_linea)
+        cuerpo.append(
+            f"  Diferencia = {diff:.4g} A "
+            f"({'[green]OK' if diff < 1e-6 else '[red]NO coincide'}[/])\n")
+    else:
+        suma = sum(c["i"] for c in res.cargas)
+        cuerpo.append(f"  Sum(I_ramas) = {_fmt_complejo(suma)}\n")
+        cuerpo.append(f"  I_total = {_fmt_complejo(res.i_linea)}\n")
+        diff = abs(suma - res.i_linea)
+        cuerpo.append(
+            f"  Diferencia = {diff:.4g} A "
+            f"({'[green]OK' if diff < 1e-6 else '[red]NO coincide'}[/])\n")
+
+    # 6) Balance de potencia (sanity check de conservación)
+    cuerpo.append("\nBalance de potencia\n", style="bold underline")
+    bal = res.balance
+    cuerpo.append(
+        f"  S_fuente    = {_fmt_complejo(bal.S_fuente)}\n")
+    cuerpo.append(
+        f"  S_consumida = {_fmt_complejo(bal.S_total)}\n")
+    cuerpo.append(
+        f"  err_P = {bal.err_P:.4g} W ;  err_Q = {bal.err_Q:.4g} var ;  "
+        f"err_rel = {bal.err_rel:.4g}\n")
+    cuerpo.append(
+        f"  Estado: "
+        f"{'[green]OK (conservacion cumplida)' if bal.ok else '[red]DESBALANCE'}[/]\n")
+
+    consola.print(
+        Panel(cuerpo, title="Análisis extendido", border_style="green",
+              expand=True))
+
+
+def _fmt_polar(z) -> str:
+    """Formato polar ``M[ángulo]`` para un fasor."""
+    return f"{abs(z):.4g}[{_angulo_grados(z):.4g}]"
 
 
 # ---------------------------------------------------------------------------
@@ -1006,8 +1483,11 @@ def _cmd_trifasico_cli(consola: Console, args: list[str]) -> None:
     for tipo, z in datos.cargas:
         circuito.agregar_carga(tipo, z)
     res = circuito.resolver()
+    _guardar_ultimo_resultado(circuito, res, True, datos)
     _renderizar_red(consola, circuito, res, "trifasico",
                     fuente_tipo=info_fuente["tipo"])
+    if datos.taller:
+        _resolver_academico(consola, circuito, res, es_tri=True, datos=datos)
 
 
 def _cmd_monofasico(consola: Console, args: list[str] | None = None) -> None:
@@ -1059,7 +1539,84 @@ def _cmd_monofasico_cli(consola: Console, args: list[str]) -> None:
     for _, z in datos.cargas:
         circuito.agregar_carga(z)
     res = circuito.resolver()
+    _guardar_ultimo_resultado(circuito, res, False, datos)
     _renderizar_red(consola, circuito, res, "monofasico")
+    if datos.taller:
+        _resolver_academico(consola, circuito, res, es_tri=False, datos=datos)
+
+
+def _cmd_graficar(consola: Console, args: list[str]) -> None:
+    """Visualiza los fasores (y opcionalmente el triángulo de potencias) del
+    último circuito resuelto con 'trifasico' o 'monofasico'.
+
+    Banderas:
+      --tensiones      Solo el panel de fasores de tensión.
+      --corrientes     Solo el panel de fasores de corriente.
+      --potencia       Triángulo de potencias (P, Q, S).
+      --guardar <ruta> Exporta la figura (PNG/PDF/SVG) sin abrir ventana.
+    Sin banderas: dos subplots paralelos (tensiones y corrientes).
+    """
+    estado = _ultimo_resultado(consola)
+    if estado is None:
+        return
+
+    import matplotlib.pyplot as plt
+    from analizador.gui.viz import (
+        phasor_plot, plot_current_phasors, plot_voltage_phasors,
+        power_triangle)
+
+    solo_tensiones = "--tensiones" in args
+    solo_corrientes = "--corrientes" in args
+    con_potencia = "--potencia" in args
+    ruta = None
+    if "--guardar" in args:
+        i = args.index("--guardar")
+        if i + 1 >= len(args):
+            consola.print("[red]--guardar requiere una ruta de archivo.[/]")
+            return
+        ruta = args[i + 1]
+
+    res = estado["res"]
+    es_tri = estado["es_tri"]
+
+    if con_potencia:
+        fig, ax = plt.subplots()
+        power_triangle(res.P, res.Q, titulo="Triangulo de potencias")
+        plt.sca(ax)
+    elif es_tri:
+        if solo_tensiones:
+            fig, ax = plot_voltage_phasors(res)
+        elif solo_corrientes:
+            fig, ax = plot_current_phasors(res)
+        else:
+            fig, (ax_v, ax_i) = plt.subplots(1, 2, subplot_kw={
+                "projection": "polar"})
+            fig.suptitle("Fasores del sistema trifásico")
+            plot_voltage_phasors(res, ax=ax_v)
+            plot_current_phasors(res, ax=ax_i)
+    else:
+        # Monofásico: V_fuente, I_linea, V_carga.
+        fasores = [res.v_fuente, res.i_linea, res.v_carga]
+        etiquetas = ["V_fuente", "I_linea", "V_carga"]
+        fig, ax = phasor_plot(fasores, etiquetas=etiquetas,
+                              titulo="Fasores - circuito monofásico")
+
+    if ruta:
+        try:
+            fig.savefig(ruta, dpi=150, bbox_inches="tight")
+            consola.print(
+                f"[green]Figura exportada a:[/] {ruta}")
+        except Exception as err:
+            consola.print(f"[red]No se pudo guardar la figura: {err}[/]")
+        finally:
+            plt.close(fig)
+        return
+
+    try:
+        plt.show()
+        consola.print("[green]Diagrama generado correctamente.[/]")
+    except Exception as err:
+        consola.print(f"[red]No se pudo mostrar la figura: {err}[/]")
 
 
 def _mostrar_error_args(consola: Console, err: Exception) -> None:
@@ -1345,6 +1902,8 @@ _COMANDOS: list[tuple[str, str, functools.partial]] = [
      functools.partial(_cmd_monofasico)),
     ("per-unit", "Convierte al sistema por unidad (asistido).",
      functools.partial(_cmd_per_unit)),
+    ("graficar, fasores, plot", "Visualiza fasores del ultimo circuito resuelto.",
+     functools.partial(_cmd_graficar)),
     ("modulos", "Lista los modulos tematicos disponibles.",
      functools.partial(_cmd_modulos)),
     ("version", "Muestra la version del proyecto.", functools.partial(_cmd_version)),
@@ -1379,8 +1938,10 @@ class _ComandoCompleter(Completer):
 
 
 # Banderas con doble guion sugeridas en el autocompletado para los comandos
-# de red (trifasico / monofasico).
-_BANDERAS = ("--fuente", "--cargas", "--linea", "--lineas", "--paralelo")
+# de red (trifasico / monofasico) y de visualización (graficar / fasores).
+_BANDERAS = ("--fuente", "--cargas", "--linea", "--lineas", "--paralelo",
+             "--taller", "--carga-fp", "--fp",
+             "--tensiones", "--corrientes", "--potencia", "--guardar")
 
 
 def _palabras_comandos() -> list[str]:
@@ -1473,7 +2034,8 @@ def _ejecutar(consola: Console, linea: str) -> bool:
     # Despacho de comandos normales (navegación / integración / ayuda).
     aliases_validos = _aliases_comandos()
     # Comandos que aceptan argumentos CLI (el resto los ignora).
-    comandos_con_args = {"trifasico", "tri", "3f", "monofasico", "mono", "1f"}
+    comandos_con_args = {"trifasico", "tri", "3f", "monofasico", "mono", "1f",
+                         "graficar", "fasores", "plot"}
     for comando, _, handler in _COMANDOS:
         aliases = [a.strip() for a in comando.replace(",", " ").split()]
         if cmd in aliases:

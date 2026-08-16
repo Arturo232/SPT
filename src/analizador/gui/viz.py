@@ -1,6 +1,9 @@
 """Visualización (equivalente a ``viz/*.m``).
 
-Diagrama de fasores y triángulo de potencias con ``matplotlib``.
+Diagramas de fasores vectoriales y triángulo de potencias con ``matplotlib``.
+
+Todas las funciones **no** abren ventanas emergentes: retornan la figura y el
+eje para que el llamador decida cuándo llamar a ``plt.show()`` o guardar.
 """
 
 import numpy as np
@@ -8,27 +11,138 @@ import numpy as np
 from ..core.base import validate_input
 
 
-def phasor_plot(phasores, etiquetas=None, titulo="Diagrama de fasores"):
-    """Grafica fasores en un diagrama polar.
+# Colores estándar por fase (A: Rojo, B: Naranja/Amarillo, C: Azul).
+_COLORES_FASE = ["#D62728", "#FF7F0E", "#1F77B4"]
 
-    Regresa el objeto del eje polar (compatible con ``matplotlib``).
+
+def _color_por_indice(idx):
+    """Devuelve el color correspondiente al índice (ciclado por fase)."""
+    return _COLORES_FASE[idx % len(_COLORES_FASE)]
+
+
+def _fmt_polar_label(nombre, z, unidad):
+    """Formatea una etiqueta polar descriptiva para la punta de una flecha.
+
+    Ej: ``"Van: 120.08 V ∠ -30.0°"``.
+    """
+    mag = abs(z)
+    ang = np.degrees(np.angle(z))
+    return "%s: %.2f %s ∠ %.1f°" % (nombre, mag, unidad, ang)
+
+
+def phasor_plot(fasores, etiquetas=None, titulo="Diagrama de fasores",
+                unidad="V", colores=None, ax=None):
+    """Dibuja fasores como vectores (flechas) en un eje polar.
+
+    Parámetros:
+        fasores: iterable de números complejos (origen en (0,0)).
+        etiquetas: lista de nombres de variable para cada fasor.
+        titulo: título del diagrama.
+        unidad: unidad para el texto de etiqueta ("V", "A", ...).
+        colores: lista de colores; por defecto cicla Rojo/Naranja/Azul.
+        ax: eje polar opcional (para crear subplots).
+
+    Retorna ``(fig, ax)``. No llama a ``plt.show()``.
     """
     import matplotlib.pyplot as plt
 
-    validate_input("numeric", phasores, "phasores")
+    fasores = np.asarray(fasores, dtype=complex).flatten()
+    validate_input("numeric", fasores, "fasores")
+    n = fasores.size
+    if n == 0:
+        raise ValueError("phasor_plot: no hay fasores que graficar")
     if etiquetas is None:
-        etiquetas = []
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="polar")
-    angulos = np.angle(np.asarray(phasores).flatten())
-    magnitudes = np.abs(np.asarray(phasores).flatten())
-    ax.plot(angulos, magnitudes, "o-", linewidth=1.5)
+        etiquetas = [""] * n
+    etiquetas = list(etiquetas) + [""] * (n - len(etiquetas))
+    if colores is None:
+        colores = [_color_por_indice(i) for i in range(n)]
+
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="polar")
+    else:
+        fig = ax.figure
+
+    angulos = np.angle(fasores)
+    magnitudes = np.abs(fasores)
+    rmax = magnitudes.max() * 1.10 if magnitudes.max() > 0 else 1.0
+
+    for k in range(n):
+        color = colores[k]
+        # Flecha desde el origen hasta la punta del fasor.
+        ax.annotate(
+            "", xy=(angulos[k], magnitudes[k]), xytext=(0, 0),
+            arrowprops=dict(arrowstyle="->", color=color,
+                            lw=2, mutation_scale=18),
+        )
+        if etiquetas[k]:
+            ax.text(angulos[k], magnitudes[k] * 1.04,
+                    _fmt_polar_label(etiquetas[k], fasores[k], unidad),
+                    ha="center", va="bottom", fontsize=8, color=color)
+
+    ax.set_ylim(0, rmax)
+    ax.set_rmax(rmax)
+    ax.set_rticks(np.linspace(0, rmax, 5))
+    ax.grid(True)
     ax.set_title(titulo)
-    if etiquetas:
-        for k, (a, m) in enumerate(zip(angulos, magnitudes)):
-            if k < len(etiquetas):
-                ax.text(a, m, etiquetas[k], ha="center")
-    return ax
+    return fig, ax
+
+
+def plot_voltage_phasors(res, ax=None):
+    """Grafica los fasores de tensión de un circuito trifásico balanceado.
+
+    Para cada carga en Estrella se dibujan ``Van, Vbn, Vcn`` (fase-neutro);
+    para cada carga en Delta se dibujan ``Vab, Vbc, Vca`` (tensión de línea).
+
+    Retorna ``(fig, ax)``.
+    """
+    etiquetas = []
+    fasores = []
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Y":
+            van, vbn, vcn = _fasores_abc(c["v_fase"])
+            fasores += [van, vbn, vcn]
+            etiquetas += ["Van", "Vbn", "Vcn"]
+        else:  # Delta
+            vab, vbc, vca = _fasores_abc(c["v_linea_fasor"])
+            fasores += [vab, vbc, vca]
+            etiquetas += ["Vab", "Vbc", "Vca"]
+    return phasor_plot(fasores, etiquetas=etiquetas,
+                       titulo="Fasores de tensión", unidad="V", ax=ax)
+
+
+def plot_current_phasors(res, ax=None):
+    """Grafica los fasores de corriente de un circuito trifásico balanceado.
+
+    Para cada carga en Estrella se dibujan ``Ia, Ib, Ic`` (corriente de línea);
+    para cada carga en Delta se dibujan ``Iab, Ibc, Ica`` (corriente de malla).
+
+    Retorna ``(fig, ax)``.
+    """
+    etiquetas = []
+    fasores = []
+    for k, c in enumerate(res.cargas, start=1):
+        if c["conexion"] == "Y":
+            ia, ib, ic = _fasores_abc(c["i_linea"])
+            fasores += [ia, ib, ic]
+            etiquetas += ["Ia", "Ib", "Ic"]
+        else:  # Delta
+            iab, ibc, ica = _fasores_abc(c["i_fase"])
+            fasores += [iab, ibc, ica]
+            etiquetas += ["Iab", "Ibc", "Ica"]
+    return phasor_plot(fasores, etiquetas=etiquetas,
+                       titulo="Fasores de corriente", unidad="A", ax=ax)
+
+
+def _fasores_abc(z):
+    """Devuelve los tres fasores balanceados (a, b, c) desde la fase 'a'."""
+    import math
+
+    return (z,
+            z * complex(math.cos(math.radians(-120)),
+                        math.sin(math.radians(-120))),
+            z * complex(math.cos(math.radians(120)),
+                        math.sin(math.radians(120))))
 
 
 def power_triangle(P, Q, titulo="Triangulo de potencias"):

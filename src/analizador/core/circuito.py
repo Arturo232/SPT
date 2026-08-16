@@ -20,8 +20,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from .base import (complex_power, polar_to_complex, power_factor,
-                   rad2deg, validate_input)
+from .base import (balance_potencias, complex_power, polar_to_complex,
+                   power_factor, rad2deg, validate_input)
 from ..errors import error_analizador
 from ..modules.sistemas_trifasicos import normalizar_conexion
 
@@ -243,6 +243,10 @@ class CircuitoTrifasico:
         fp_info = power_factor(s3f)
         v_linea_fuente = abs(v_fase) * math.sqrt(3)
 
+        # Potencia trifásica consumida por la línea: S_linea = 3*|I|^2*Z_linea
+        s_linea_fase = complex_power(v_caida, i_linea)
+        s_linea = 3 * s_linea_fase
+
         detalle = []
         for k, carga in enumerate(self.cargas, start=1):
             i_rama = v_carga / carga["z_y"]         # IL que alimenta esa carga
@@ -280,6 +284,9 @@ class CircuitoTrifasico:
                 "phi_deg": rad2deg(np.angle(s_carga_3f)),
             })
 
+        _balance = balance_potencias(
+            s3f, [s_linea] + [c["s3f"] for c in detalle])
+
         result = SimpleNamespace(
             # fuente
             v_linea=v_linea_fuente,
@@ -289,6 +296,9 @@ class CircuitoTrifasico:
             # línea
             z_linea=self.z_linea,
             v_caida_linea=v_caida,
+            s_linea=s_linea,
+            p_linea=np.real(s_linea),
+            q_linea=np.imag(s_linea),
             # carga
             v_carga=v_carga,
             v_carga_linea=abs(v_carga) * math.sqrt(3),
@@ -306,6 +316,8 @@ class CircuitoTrifasico:
             type=fp_info.type,
             phi_deg=rad2deg(np.angle(s3f)),
             cargas=detalle,
+            balance=_balance,
+            advertencias=_advertencias_balance(_balance),
         )
         self.resultado = result
         return result
@@ -370,6 +382,11 @@ class CircuitoTrifasico:
             % (_fmt_fasor(r.v_carga), abs(r.v_carga)),
             "  Tension de linea       V_L = %.4f V" % r.v_carga_linea,
             "",
+            "--- POTENCIA EN LA LINEA (trifasica) ---",
+            "  S_linea = %s" % _fmt_complex(r.s_linea),
+            "  P_perdidas = %.4f W" % r.p_linea,
+            "  Q_linea    = %.4f var" % r.q_linea,
+            "",
             "--- POTENCIA (trifasica total) ---",
             "  S = %s" % _fmt_complex(r.s3f),
             "  P   = %.4f W" % r.P,
@@ -377,6 +394,15 @@ class CircuitoTrifasico:
             "  |S| = %.4f VA" % r.Sabs,
             "  FP  = %.4f (%s)" % (r.fp, _estado(r.type)),
             "  phi = %.4f deg" % r.phi_deg,
+            "",
+            "--- BALANCE DE POTENCIA ---",
+            "  S_fuente   = %s" % _fmt_complex(r.balance.S_fuente),
+            "  S_consumida= %s" % _fmt_complex(r.balance.S_total),
+            "  err_P = %.6g W ;  err_Q = %.6g var ;  err_rel = %.4g"
+            % (r.balance.err_P, r.balance.err_Q, r.balance.err_rel),
+            "  Estado: %s"
+            % ("OK (conservacion cumplida)" if r.balance.ok
+               else "DESBALANCE (revise el circuito)"),
             "",
         ]
         return "\n".join(lineas)
@@ -388,6 +414,18 @@ def _estado(tipo):
     if tipo == "capacitiva":
         return "ADELANTO (capacitivo)"
     return "RESISTIVO"
+
+
+def _advertencias_balance(balance) -> list[str]:
+    """Devuelve una lista de advertencias de balance (vacía si está OK)."""
+    if balance.ok:
+        return []
+    return [
+        "BALANCE DE POTENCIA NO CONSERVADO: S_fuente = %s vs S_consumida = %s "
+        "(err_P = %.6g, err_Q = %.6g, error relativo = %.4g > 0.01%%)."
+        % (_fmt_complex(balance.S_fuente), _fmt_complex(balance.S_total),
+           balance.err_P, balance.err_Q, balance.err_rel)
+    ]
 
 
 def _fmt_complex(z):
@@ -555,6 +593,7 @@ class CircuitoMonofasico:
         v_caida = i_linea * self.z_linea
         s = complex_power(v_fuente, i_linea)
         fp_info = power_factor(s)
+        s_linea = complex_power(v_caida, i_linea)
 
         detalle = []
         for k, z in enumerate(self.cargas, start=1):
@@ -575,10 +614,16 @@ class CircuitoMonofasico:
                 "phi_deg": rad2deg(np.angle(s_carga)),
             })
 
+        _balance = balance_potencias(
+            s, [s_linea] + [c["s"] for c in detalle])
+
         result = SimpleNamespace(
             v_fuente=v_fuente,
             z_linea=self.z_linea,
             v_caida_linea=v_caida,
+            s_linea=s_linea,
+            p_linea=np.real(s_linea),
+            q_linea=np.imag(s_linea),
             v_carga=v_carga,
             z_eq=z_eq,
             z_total=z_total,
@@ -591,6 +636,8 @@ class CircuitoMonofasico:
             type=fp_info.type,
             phi_deg=rad2deg(np.angle(s)),
             cargas=detalle,
+            balance=_balance,
+            advertencias=_advertencias_balance(_balance),
         )
         self.resultado = result
         return result
@@ -640,6 +687,11 @@ class CircuitoMonofasico:
             "  Tension en la carga      V_f = %s  (|V| = %.4f V)"
             % (_fmt_fasor(r.v_carga), abs(r.v_carga)),
             "",
+            "--- POTENCIA EN LA LINEA ---",
+            "  S_linea = %s" % _fmt_complex(r.s_linea),
+            "  P_perdidas = %.4f W" % r.p_linea,
+            "  Q_linea    = %.4f var" % r.q_linea,
+            "",
             "--- POTENCIA TOTAL ---",
             "  S = %s" % _fmt_complex(r.s),
             "  P   = %.4f W" % r.P,
@@ -647,6 +699,15 @@ class CircuitoMonofasico:
             "  |S| = %.4f VA" % r.Sabs,
             "  FP  = %.4f (%s)" % (r.fp, _estado(r.type)),
             "  phi = %.4f deg" % r.phi_deg,
+            "",
+            "--- BALANCE DE POTENCIA ---",
+            "  S_fuente   = %s" % _fmt_complex(r.balance.S_fuente),
+            "  S_consumida= %s" % _fmt_complex(r.balance.S_total),
+            "  err_P = %.6g W ;  err_Q = %.6g var ;  err_rel = %.4g"
+            % (r.balance.err_P, r.balance.err_Q, r.balance.err_rel),
+            "  Estado: %s"
+            % ("OK (conservacion cumplida)" if r.balance.ok
+               else "DESBALANCE (revise el circuito)"),
             "",
         ]
         return "\n".join(lineas)

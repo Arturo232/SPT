@@ -211,3 +211,44 @@ def rad2deg(x: NumericLike) -> np.ndarray | float:
 
 def deg2rad(x: NumericLike) -> np.ndarray | float:
     return np.deg2rad(x)  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Balance de potencia (sanity check de conservación)
+# ---------------------------------------------------------------------------
+def balance_potencias(S_fuente: NumericLike, S_consumos: NumericLike,
+                      tol_rel: float = 1e-4) -> SimpleNamespace:
+    """Verifica la conservación de la potencia compleja: ``S_fuente`` debe
+    igualar la suma de las potencias consumidas ``sum(S_consumos)``.
+
+    Parámetros:
+        S_fuente : potencia compleja entregada por la fuente [VA].
+        S_consumos : iterable de potencias complejas consumidas [VA]
+                     (p. ej. línea + cada carga).
+        tol_rel : tolerancia relativa del error (por defecto 0.01%).
+
+    Regresa ``SimpleNamespace`` con:
+        ok      : True si el error relativo no supera ``tol_rel``.
+        S_fuente: potencia compleja de entrada.
+        S_total : suma de las potencias consumidas.
+        err_P   : P_fuente - P_total.
+        err_Q   : Q_fuente - Q_total.
+        err_rel : error relativo normalizado (>= 0).
+    """
+    validate_input("numeric", S_fuente, "S_fuente")
+    consumos = np.asarray(S_consumos)
+    s_total = np.sum(consumos) if consumos.size else 0j
+    s_f = complex(S_fuente)
+    err_P = float(np.real(s_f) - np.real(s_total))
+    err_Q = float(np.imag(s_f) - np.imag(s_total))
+    escala = max(abs(s_f), 1.0)
+    err_rel = max(abs(err_P), abs(err_Q)) / escala
+    result = SimpleNamespace(
+        ok=bool(err_rel <= tol_rel),
+        S_fuente=s_f,
+        S_total=complex(s_total),
+        err_P=err_P,
+        err_Q=err_Q,
+        err_rel=float(err_rel),
+    )
+    return result

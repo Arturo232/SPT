@@ -248,6 +248,13 @@ def _nav_limpia():
     cli._nav_reset()
 
 
+@pytest.fixture(autouse=True)
+def _no_mostrar_graficas():
+    """Evita que los diagramas fasoriales bloqueen la ejecución en pruebas."""
+    with patch("matplotlib.pyplot.show"):
+        yield
+
+
 def test_gramatica_valida_trifasico_fuente(consola):
     assert cli._ejecutar(
         consola, "trifasico fuente --conexion estrella --v-rms 208") is True
@@ -436,3 +443,169 @@ def test_evalua_factor_potencia(consola):
     assert "%)" in txt
 
 
+
+
+# ---------------------------------------------------------------------------
+# Resolución académica --taller (incisos a-j) y análisis extendido
+# ---------------------------------------------------------------------------
+def test_flag_taller_activa_incisos(consola):
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(
+            consola, "trifasico --fuente 208 --cargas Y:4+j2 D:5-j4 "
+                     "--linea 8+j4 --taller")
+    txt = consola.export_text()
+    for lbl in ("Inciso (a)", "Inciso (b)", "Inciso (c)", "Inciso (d)",
+                "Inciso (e)", "Inciso (f)", "Inciso (g)", "Inciso (h)",
+                "Inciso (i)", "Inciso (j)", "Análisis extendido"):
+        assert lbl in txt
+
+
+def test_flag_resolver_incisos_alias(consola):
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(
+            consola, "trifasico --fuente 208 --cargas Y:4+j2 --resolver-incisos")
+    assert "Inciso (a)" in consola.export_text()
+
+
+def test_inciso_b_c_potencia_coincide_con_motor(consola):
+    from analizador.core.circuito import CircuitoTrifasico
+
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(
+            consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+
+    esperado = CircuitoTrifasico()
+    esperado.set_fuente(208, 0.0, "linea")
+    esperado.agregar_carga("Y", 4 + 2j)
+    res = esperado.resolver()
+
+    txt = consola.export_text()
+    # (b) y (c) deben coincidir con S3f del motor
+    s_mag = abs(res.s3f)
+    # la magnitud de S3f aparece al menos en (b) y (c)
+    assert txt.count(f"{s_mag:.4g}") >= 2
+    # ambos métodos deben dar el mismo resultado complejo
+    assert f"{abs(res.s3f):.4g}" in txt
+
+
+def test_inciso_a_corriente_fuente(consola):
+    from analizador.core.circuito import CircuitoTrifasico
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    esperado = CircuitoTrifasico()
+    esperado.set_fuente(208, 0.0, "linea")
+    esperado.agregar_carga("Y", 4 + 2j)
+    res = esperado.resolver()
+    txt = consola.export_text()
+    assert f"{abs(res.i_linea):.4g}" in txt
+
+
+def test_inciso_d_tension_carga(consola):
+    from analizador.core.circuito import CircuitoTrifasico
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    esperado = CircuitoTrifasico()
+    esperado.set_fuente(208, 0.0, "linea")
+    esperado.agregar_carga("Y", 4 + 2j)
+    res = esperado.resolver()
+    txt = consola.export_text()
+    assert f"{res.v_carga_linea:.4g} V" in txt
+
+
+def test_inciso_e_fasorial_estrella(consola):
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    txt = consola.export_text()
+    assert "V_an = V_f" in txt
+    assert "V_bn" in txt and "V_cn" in txt
+    assert "Fasorial de tensiones (Estrella)" in txt
+
+
+def test_inciso_f_g_h_delta(consola):
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(
+            consola, "trifasico --fuente 208 --cargas D:5-j4 --taller")
+    txt = consola.export_text()
+    assert "I_f_Delta = I_L * exp(j30)/sqrt(3)" in txt
+    assert "I_ab" in txt and "I_bc" in txt and "I_ca" in txt
+    assert "Fasorial de corrientes (Delta)" in txt
+
+
+def test_inciso_i_desglose_potencia(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    txt = consola.export_text()
+    assert "P_perdidas" in txt
+    assert "kW" in txt and "kVAR" in txt
+
+
+def test_inciso_j_correccion_fp_kvar(consola):
+    from analizador.core.circuito import CircuitoTrifasico
+    from analizador.modules.correccion_fp import required_reactive_power
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:3+j4 --taller")
+    esperado = CircuitoTrifasico()
+    esperado.set_fuente(208, 0.0, "linea")
+    esperado.agregar_carga("Y", 3 + 4j)
+    res = esperado.resolver()
+    c = res.cargas[0]
+    comp = required_reactive_power(c["P"], c["fp"], 0.8)
+    txt = consola.export_text()
+    assert f"{comp.Qc / 1000:.4g} kVAR" in txt
+
+
+def test_inciso_j_correccion_fp_capacitancia(consola):
+    from analizador.core.circuito import CircuitoTrifasico
+    from analizador.modules.correccion_fp import (capacitor_reactance,
+                                                  capacitor_value,
+                                                  required_reactive_power)
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:3+j4 --taller")
+    esperado = CircuitoTrifasico()
+    esperado.set_fuente(208, 0.0, "linea")
+    esperado.agregar_carga("Y", 3 + 4j)
+    res = esperado.resolver()
+    c = res.cargas[0]
+    comp = required_reactive_power(c["P"], c["fp"], 0.8)
+    v_ln = abs(c["v_fase"])
+    cap = capacitor_value(60.0, capacitor_reactance(v_ln, comp.Qc).Xc)
+    txt = consola.export_text()
+    assert f"{cap.C_uF:.4g} uF" in txt
+
+
+def test_analisis_extendido_variables(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    txt = consola.export_text()
+    assert "Y_eq = 1/Z_eq" in txt
+    assert "Eficiencia de transmisión" in txt
+    assert "Regulación de voltaje" in txt
+    assert "Verificación LKC" in txt
+
+
+def test_analisis_extendido_lkc_ok(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 D:5-j4 --taller")
+    txt = consola.export_text()
+    assert "[green]OK[/]" in txt
+
+
+def test_monofasico_taller(consola):
+    cli._ejecutar(consola, "monofasico --fuente 120 --cargas 4+j2 5-j4 --taller")
+    txt = consola.export_text()
+    for lbl in ("Inciso (a)", "Inciso (b)", "Inciso (d)", "Inciso (i)",
+                "Inciso (j)", "Análisis extendido"):
+        assert lbl in txt
+
+
+def test_parser_flag_taller_y_fp():
+    datos = cli._parse_red_args(
+        ["--fuente", "208", "--cargas", "Y:4+j2", "--taller",
+         "--carga-fp", "2", "--fp", "0.9"])
+    assert datos.taller is True
+    assert datos.carga_fp == 2
+    assert datos.fp_objetivo == pytest.approx(0.9)
+
+
+def test_parser_taller_defaults():
+    datos = cli._parse_red_args(["--fuente", "208", "--cargas", "Y:4+j2"])
+    assert datos.taller is False
+    assert datos.carga_fp == 1
+    assert datos.fp_objetivo == pytest.approx(0.8)

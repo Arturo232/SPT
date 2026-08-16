@@ -7,6 +7,7 @@ import numpy as np
 from analizador.services.asistente import (_ejecutar_comando, SesionConsola,
                                             parse_complejo)
 from analizador.core.circuito import CircuitoMonofasico, CircuitoTrifasico
+from analizador.core import balance_potencias
 from analizador.errors import AnalizadorError
 
 from .conftest import raises_codigo
@@ -549,3 +550,49 @@ def test_modo_invalido():
     s = SesionConsola(modo="mono")
     raises_codigo(lambda: _ejecutar_comando(s, "modo xx"),
                   "analizador:circuito:argumentos")
+
+
+def test_balance_potencias_funcion_pura():
+    """La funcion pura detecta desbalances y acepta balances exactos."""
+    ok = balance_potencias(1000 + 500j, [800 + 400j, 200 + 100j])
+    assert ok.ok
+    assert abs(ok.err_P) < 1e-9 and abs(ok.err_Q) < 1e-9
+    # desbalance artificial: falta 100 W
+    mal = balance_potencias(1000 + 500j, [900 + 500j])
+    assert not mal.ok
+    assert mal.err_P == 100
+    assert mal.err_Q == 0
+    assert mal.err_rel > 1e-4
+
+
+def test_resolver_trifasico_balance_conservacion():
+    """Caso de aceptacion: S_fuente = S_linea + S_cargas (P y Q)."""
+    c = CircuitoTrifasico()
+    c.set_fuente(120 * math.sqrt(3), 0)
+    c.set_linea(2 + 4j)
+    c.agregar_carga("Y", 30 + 40j)
+    c.agregar_carga("Y", 20 - 15j)
+    r = c.resolver()
+
+    # potencia de la linea expuesta
+    assert abs(r.p_linea - 150) < 1e-6
+    assert abs(r.q_linea - 300) < 1e-6
+    # balance conservado
+    assert r.balance.ok
+    assert abs(r.balance.S_fuente - (1800 + 0j)) < 1e-6
+    assert abs(r.balance.S_total - (1800 + 0j)) < 1e-6
+    assert r.advertencias == []
+
+
+def test_resolver_monofasico_balance_conservacion():
+    """En monofasico el balance tambien se conserva."""
+    c = CircuitoMonofasico()
+    c.set_fuente(120, 0)
+    c.set_linea(1 + 1j)
+    c.agregar_carga(10 + 5j)
+    c.agregar_carga(20 - 10j)
+    r = c.resolver()
+    assert r.balance.ok
+    assert abs(r.balance.S_fuente - r.balance.S_total) < 1e-6
+    assert abs(r.P - (r.p_linea + sum(cc["P"] for cc in r.cargas))) < 1e-6
+    assert abs(r.Q - (r.q_linea + sum(cc["Q"] for cc in r.cargas))) < 1e-6
