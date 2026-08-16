@@ -3,23 +3,23 @@
 Consumen exclusivamente la capa de servicios y las funciones de presentación.
 """
 
-from .core import polar_to_complex
-from .modules.correccion_fp import capacitor_kvar
-from .modules.flujo_potencia import (bus_structure, caso2_barras,
-                                     ejemplo3_barras, line_structure)
-from .modules.per_unit import change_of_base, from_per_unit, per_unit_base
-from .modules.sistemas_trifasicos import (delta_to_wye, wye_to_delta,
-                                          three_phase_power_from_line)
-from .modules.transformadores import (ideal_transformer, three_phase_transformer,
-                                      transformer_equivalent,
-                                      transformer_loss_efficiency, voltage_regulation)
-from .services import (service_analizar_carga, service_circuitos,
-                       service_componentes_simetricas, service_corregir_fp,
-                       service_cortocircuito, service_estabilidad,
-                       service_flujo_carga, service_flujo_dos_fuentes,
-                       service_maquina_sincrona, service_per_unit,
-                       service_transformador, service_trifasico_carga)
-from .utils import input_helpers, print_complex, print_results
+from ..core.base import polar_to_complex
+from ..modules.correccion_fp import capacitor_kvar
+from ..modules.flujo_potencia import (bus_structure, caso2_barras,
+                                      ejemplo3_barras, line_structure)
+from ..modules.per_unit import change_of_base, from_per_unit, per_unit_base
+from ..modules.sistemas_trifasicos import (delta_to_wye, wye_to_delta,
+                                           three_phase_power_from_line)
+from ..modules.transformadores import (ideal_transformer, three_phase_transformer,
+                                       transformer_equivalent,
+                                       transformer_loss_efficiency, voltage_regulation)
+from ..services import (service_analizar_carga, service_circuitos,
+                        service_componentes_simetricas, service_corregir_fp,
+                        service_cortocircuito, service_estabilidad,
+                        service_flujo_carga, service_flujo_dos_fuentes,
+                        service_maquina_sincrona, service_per_unit,
+                        service_transformador, service_trifasico_carga)
+from ..utils import input_helpers, print_complex, print_results
 
 
 def _print_complejo(z):
@@ -105,7 +105,7 @@ def menu_potencia_compleja():
     print_results(result)
 
     if input_helpers("choice", "Exportar resultados?", ["No", "Si"]) == 2:
-        from .utils import export_results
+        from ..utils import export_results
         formato = input_helpers("choice", "Formato:", ["TXT", "JSON", "CSV", "Excel"])
         formatos = ["txt", "json", "csv", "xlsx"]
         nombre = input("  Archivo (sin extension, se guardara en resultados/): ").strip()
@@ -272,7 +272,7 @@ def menu_transformador():
         vbt = input_helpers("positive", "Vbase transformador (V): ")
         sbs = input_helpers("positive", "Sbase sistema (VA): ")
         vbs = input_helpers("positive", "Vbase sistema (V): ")
-        from .modules.transformadores import per_unit_transformer
+        from ..modules.transformadores import per_unit_transformer
         result = per_unit_transformer(zpu, sbt, vbt, sbs, vbs)
     else:
         a = input_helpers("number", "Relacion a = N1/N2: ")
@@ -447,7 +447,7 @@ def menu_estabilidad():
 
 def menu_circuito_trifasico():
     """Menú del entorno de resolución de circuitos trifásicos balanceados."""
-    from .asistente import asistente, consola
+    from ..services.asistente import asistente, consola
     print("\n===== ENTORNO DE CIRCUITO TRIFASICO =====")
     print("Resuelve el circuito completo (fuente + linea + varias cargas en")
     print("paralelo, en Y o Delta) sin anotar valores intermedios.\n")
@@ -463,7 +463,7 @@ def menu_circuito_trifasico():
 
 def menu_taller():
     """Menú de ejercicios resueltos del Taller 2026 y ejemplos reproducibles."""
-    from .exercises import menu_ejercicios, menu_ejemplos
+    from ..core.exercises import menu_ejercicios, menu_ejemplos
     print("\n===== TALLER 2026 Y EJEMPLOS =====")
     opcion = input_helpers("choice", "Seleccione:", [
         "Ejercicios del Taller 2026 (1 a 5)",

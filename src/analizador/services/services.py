@@ -8,13 +8,13 @@ usuario: capturan excepciones y devuelven una estructura de error
 
 from types import SimpleNamespace
 
-from .errors import construir_error
-from .modules import (componentes_simetricas as cs, correccion_fp as cfp,
-                      cortocircuitos as cc, circuitos as circ,
-                      estabilidad as est, flujo_potencia as fp,
-                      maquinas as maq, per_unit as pu,
-                      potencia_compleja as pc, sistemas_trifasicos as st,
-                      transformadores as tr)
+from ..errors import construir_error
+from ..modules import (componentes_simetricas as cs, correccion_fp as cfp,
+                       cortocircuitos as cc, circuitos as circ,
+                       estabilidad as est, flujo_potencia as fp,
+                       maquinas as maq, per_unit as pu,
+                       potencia_compleja as pc, sistemas_trifasicos as st,
+                       transformadores as tr)
 
 
 def _construir_meta(modulo, tema, formulas, unidades):
@@ -54,7 +54,7 @@ def service_circuitos(mode, *args):
             formulas = ["Ytotal = sum(1/Zk)", "Zeq = 1/Ytotal", "I = V/Zeq"]
             tema = "Circuito paralelo (V, varias Z)"
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: modo no valido para service_circuitos: {0}", mode)
         result.meta = _construir_meta("circuitosMonofasicos", tema, formulas,
@@ -87,12 +87,12 @@ def service_analizar_carga(mode, *args):
         elif m == "SOURCE":
             p, q, v = args[0], args[1], args[2]
             i = pc.source_current(p + 1j * q, v)
-            from .core import power_from_vi
+            from ..core.base import power_from_vi
             result = power_from_vi(v, i)
             formulas = ["I = conj(S/V)"]
             tema = "Corriente de la fuente"
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: modo no valido para service_analizar_carga: {0}", mode)
         result.meta = _construir_meta(
@@ -229,7 +229,7 @@ def service_flujo_carga(buses, lines, metodo="nr", tol=None):
                 res = fp.gauss_seidel_power_flow(buses, lines)
             nombre = "Gauss-Seidel"
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: metodo no valido para service_flujo_carga: {0}", metodo)
         result = res
@@ -266,7 +266,7 @@ def service_componentes_simetricas(mode, x):
                         "Xc = X0 + a*X1 + a^2*X2"]
             tema = "Componentes de fase (012 -> abc)"
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: modo no valido para service_componentes_simetricas: {0}", mode)
         result.meta = _construir_meta("componentesSimetricas", tema, formulas, SimpleNamespace())
@@ -295,7 +295,7 @@ def service_cortocircuito(tipo, Vf, Z1, Z2, Z0=None, Zf=0):
             result = cc.double_line_to_ground_fault(Vf, Z1, Z2, Z0, Zf)
             formulas = ["Zp = Z2*(Z0+3Zf)/(Z2+Z0+3Zf)", "I1 = Vf/(Z1+Zp)"]
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: tipo de falla no reconocido: {0}", tipo)
         result.meta = _construir_meta("cortocircuitos", "Falla " + result.tipo,
@@ -318,7 +318,7 @@ def service_maquina_sincrona(mode, *args):
             formulas = ["P = E*V/Xs * sin(delta)", "Pmax = E*V/Xs"]
             tema = "Curva potencia-angulo"
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: modo no valido para service_maquina_sincrona: {0}", mode)
         result.meta = _construir_meta("maquinasElectricas", tema, formulas,

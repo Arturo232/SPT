@@ -7,13 +7,22 @@ Dos interfaces sobre la misma clase ``CircuitoTrifasico``:
     ``solve``, ``reporte``, ...).
 """
 
+import difflib
 import re
 
 import numpy as np
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
-from .circuito import CircuitoMonofasico, CircuitoTrifasico
-from .errors import AnalizadorError, error_analizador
-from .utils import input_helpers
+from prompt_toolkit import prompt
+
+from ..core.circuito import CircuitoMonofasico, CircuitoTrifasico
+from ..errors import AnalizadorError, error_analizador
+from ..utils import input_helpers
+
+
+_consola = Console()
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +63,13 @@ def parse_complejo(texto):
     if m:
         return _polar(float(m.group(1)), float(m.group(2)), texto)
 
+    # forma polar con corchetes: "M[angulo]"  (ej. 200[30], 200[-30])
+    m = re.fullmatch(
+        r"([+-]?[\d.]+(?:e[+-]?\d+)?)\s*\[\s*([+-]?[\d.]+(?:e[+-]?\d+)?)\s*\]",
+        t.replace(" ", ""))
+    if m:
+        return _polar(float(m.group(1)), float(m.group(2)), texto)
+
     # --- formatos rectangulares: aqui si convertimos i -> j ---
     s = t.replace("i", "j").replace(" ", "")
     try:
@@ -84,7 +100,7 @@ def parse_complejo(texto):
 
 
 def _polar(mag, ang, original):
-    from .core import polar_to_complex
+    from ..core.base import polar_to_complex
     return polar_to_complex(mag, ang)
 
 
@@ -126,13 +142,13 @@ def _a_float(texto, original):
 
 
 def _fmt(z):
-    from .circuito import _fmt_complex
+    from ..core.circuito import _fmt_complex
     return _fmt_complex(z)
 
 
 def _fasor(z):
     """Fasor en forma rectangular + polar."""
-    from .core import rad2deg
+    from ..core.base import rad2deg
     ang = rad2deg(np.angle(z))
     return "%s | %.4g angulo %.4g deg" % (_fmt(z), abs(z), ang)
 
@@ -221,7 +237,7 @@ def asistente():
 def _ofrecer_exportar(circuito):
     if input_helpers("choice", "¿Exportar el reporte?", ["No", "Si"]) == 1:
         return
-    from .utils import export_results
+    from ..utils import export_results
     resultado = circuito.resultado
     nombre = input("  Archivo (sin extension, se guardara en resultados/): ").strip()
     formato = input_helpers("choice", "Formato:", ["TXT", "JSON", "CSV"])
@@ -352,35 +368,79 @@ class SesionConsola:
 
 
 def consola(modo="tri"):
-    """Consola interactiva con comandos naturales.
+    """Consola interactiva con comandos naturales (REPL moderno).
 
     Trabaja en modo monofasico o trifasico; se elige con 'modo mono'/'modo
-    tri' o al resolver con 'resolver mono'/'resolver tri'.
+    tri' o al resolver con 'resolver mono'/'resolver tri'. Usa prompt_toolkit
+    (edicion con flechas e historial) y rich para la presentacion.
     """
     sesion = SesionConsola(modo=modo)
-    print("\n===== CONSOLA DE CIRCUITOS (MONOFASICO Y TRIFASICO) =====")
-    print("Modo actual: %s  (cambie con 'modo mono' o 'modo tri')" % sesion.modo)
-    print("Escriba 'ayuda' para ver los comandos y ejemplos. Escriba 'salir' para terminar.")
+    _consola.print(
+        Panel(
+            "Consola de circuitos (monofasico y trifasico)\n"
+            f"[bold cyan]Modo actual:[/] {sesion.modo}  "
+            f"[dim](cambie con 'modo mono' o 'modo tri')[/]\n"
+            "[dim]Escriba 'ayuda' para ver los comandos y ejemplos. "
+            "Escriba 'salir' para terminar.[/]",
+            title="Circuito",
+            border_style="cyan",
+        )
+    )
 
     while True:
         try:
-            linea = input("circuito> ").strip()
-        except EOFError:
-            print()
+            linea = prompt("circuito> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            _consola.print("\n[bold]Fin del entorno de circuito.[/]")
             break
         if not linea:
             continue
         if linea.lower() in ("salir", "exit", "quit", "q"):
-            print("Fin del entorno de circuito.")
+            _consola.print("[bold]Fin del entorno de circuito.[/]")
             break
+        comando = linea.split()[0].lower()
+        if comando not in _COMANDOS_VALIDOS:
+            sugerencia = _sugerir_comando(comando)
+            if sugerencia:
+                _consola.print(
+                    Panel(
+                        f"No reconozco '[bold]{comando}[/]'. "
+                        f"\n\n[bold yellow]¿Quisiste decir '{sugerencia}'?[/]",
+                        title="Comando no reconocido",
+                        border_style="yellow",
+                    )
+                )
+            else:
+                _consola.print(
+                    Panel(
+                        f"No reconozco '[bold]{comando}[/]'. "
+                        "Escriba 'ayuda' para ver los comandos.",
+                        title="Comando no reconocido",
+                        border_style="yellow",
+                    )
+                )
+            continue
         try:
             _ejecutar_comando(sesion, linea)
         except AnalizadorError as err:
-            print("  ERROR: %s" % err.mensaje)
-            print("  Tip: escriba 'ayuda' para ver los comandos, o 'ver' para revisar el estado.")
+            _consola.print(
+                Panel(
+                    f"[bold red]{err.mensaje}[/]\n\n"
+                    "[dim]Tip: escriba 'ayuda' para ver los comandos, o "
+                    "'ver' para revisar el estado.[/]",
+                    title="Error",
+                    border_style="red",
+                )
+            )
         except Exception as err:
-            print("  ERROR inesperado: %s" % err)
-            print("  Tip: escriba 'ayuda' para ver los comandos.")
+            _consola.print(
+                Panel(
+                    f"[bold red]Error inesperado:[/] {err}\n\n"
+                    "[dim]Tip: escriba 'ayuda' para ver los comandos.[/]",
+                    title="Error",
+                    border_style="red",
+                )
+            )
 
 
 def _diagnostico(circuito):
@@ -440,12 +500,15 @@ def _set_fuente(circuito, v, angulo, dato="linea"):
 
 
 def _mostrar_fuente(circuito):
+    tabla = Table(title="Fuente", border_style="cyan", box=None)
+    tabla.add_column("Variable", style="bold")
+    tabla.add_column("Valor", style="green")
     if _es_mono(circuito):
-        print("  Fuente: V = %s" % _fasor(circuito.v_fuente))
+        tabla.add_row("V (tension)", _fasor(circuito.v_fuente))
     else:
-        print("  Fuente: V_L = %.4g V | V_f = %.4g V (fase a = %s)"
-              % (circuito.v_linea, abs(circuito.v_fuente_fase),
-                 _fasor(circuito.v_fuente_fase)))
+        tabla.add_row("V_L (tension de linea)", f"{circuito.v_linea:.4g} V")
+        tabla.add_row("V_f (fase a)", _fasor(circuito.v_fuente_fase))
+    _consola.print(tabla)
 
 
 def _ejecutar_comando(sesion, linea):
@@ -457,16 +520,19 @@ def _ejecutar_comando(sesion, linea):
     args = partes[1:]
 
     if cmd in ("ayuda", "help", "?"):
-        print(_AYUDA)
+        _consola.print(Panel(_AYUDA, title="Ayuda", border_style="blue"))
         return
 
     if cmd in ("modo", "tipo"):
         if len(args) < 1:
-            print("  Modo actual: %s  ('modo mono' o 'modo tri')" % sesion.modo)
+            _consola.print(
+                f"[bold cyan]Modo actual:[/] {sesion.modo}  "
+                "[dim]('modo mono' o 'modo tri')[/]"
+            )
             return
         nuevo = sesion.cambiar_modo(args[0])
         circuito = sesion.circuito
-        print("  Modo: %s" % nuevo)
+        _consola.print(f"[bold green]Modo:[/] {nuevo}")
         return
 
     if cmd in ("fuente", "vfuente", "set-fuente"):
@@ -532,7 +598,7 @@ def _ejecutar_comando(sesion, linea):
                              "Uso: linea <R+jX | M angulo A | R X>")
         z = parse_impedancia(args)
         circuito.set_linea(z)
-        print("  Linea: Z = %s" % _fmt(z))
+        _consola.print(f"[bold cyan]Linea:[/] Z = [green]{_fmt(z)}[/]")
         return
 
     if cmd in ("carga", "add", "agregar"):
@@ -549,7 +615,9 @@ def _ejecutar_comando(sesion, linea):
                 z = parse_impedancia(args)
             circuito.agregar_carga(z)
             n = len(circuito.cargas)
-            print("  Carga %d: Z = %s" % (n, _fmt(circuito.cargas[-1])))
+            _consola.print(
+                f"[bold green]Carga {n}:[/] Z = [yellow]{_fmt(circuito.cargas[-1])}[/]"
+            )
             return
         if len(args) < 2:
             error_analizador("circuito", "argumentos",
@@ -559,8 +627,11 @@ def _ejecutar_comando(sesion, linea):
         circuito.agregar_carga(conexion, z)
         n = len(circuito.cargas)
         c = circuito.cargas[-1]
-        print("  Carga %d (%s): Z_fase = %s -> Z_Y = %s"
-              % (n, c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
+        _consola.print(
+            f"[bold green]Carga {n} ({c['conexion']}):[/] "
+            f"Z_fase = [yellow]{_fmt(c['z_fase'])}[/] -> "
+            f"Z_Y = [yellow]{_fmt(c['z_y'])}[/]"
+        )
         return
 
     if cmd in ("pcarga", "p-carga", "potencia-carga"):
@@ -584,8 +655,10 @@ def _ejecutar_comando(sesion, linea):
                 s = parse_complejo(" ".join(args))
             circuito.agregar_carga_por_potencia(s, v_nominal)
             n = len(circuito.cargas)
-            print("  Carga %d por potencia: S = %s -> Z = %s"
-                  % (n, _fmt(s), _fmt(circuito.cargas[-1])))
+            _consola.print(
+                f"[bold green]Carga {n} por potencia:[/] "
+                f"S = [yellow]{_fmt(s)}[/] -> Z = [yellow]{_fmt(circuito.cargas[-1])}[/]"
+            )
             return
         if len(args) < 2:
             error_analizador("circuito", "argumentos",
@@ -604,8 +677,10 @@ def _ejecutar_comando(sesion, linea):
         circuito.agregar_carga_por_potencia(conexion, s, v_nominal)
         n = len(circuito.cargas)
         c = circuito.cargas[-1]
-        print("  Carga %d (%s) por potencia: S = %s -> Z_fase = %s"
-              % (n, c["conexion"], _fmt(s), _fmt(c["z_fase"])))
+        _consola.print(
+            f"[bold green]Carga {n} ({c['conexion']}) por potencia:[/] "
+            f"S = [yellow]{_fmt(s)}[/] -> Z_fase = [yellow]{_fmt(c['z_fase'])}[/]"
+        )
         return
 
     if cmd in ("corriente", "ifuente", "corriente-fuente"):
@@ -614,7 +689,9 @@ def _ejecutar_comando(sesion, linea):
                              "Uso: corriente <I | M angulo A | R X>")
         i = parse_complejo(" ".join(args))
         circuito.set_corriente(i)
-        print("  Corriente de la fuente: I = %s" % _fasor(i))
+        _consola.print(
+            f"[bold cyan]Corriente de la fuente:[/] I = [green]{_fasor(i)}[/]"
+        )
         return
 
     if cmd in ("vcarga", "v-carga", "tension-carga"):
@@ -623,24 +700,35 @@ def _ejecutar_comando(sesion, linea):
                              "Uso: vcarga <V | M angulo A | R X>")
         v = parse_complejo(" ".join(args))
         circuito.set_v_carga(v)
-        print("  Tension en la carga: V_f = %s" % _fasor(v))
+        _consola.print(
+            f"[bold cyan]Tension en la carga:[/] V_f = [green]{_fasor(v)}[/]"
+        )
         return
 
     if cmd in ("cargas", "list"):
         if len(circuito.cargas) == 0:
-            print("  No hay cargas definidas.")
+            _consola.print("[yellow]No hay cargas definidas.[/]")
             return
-        for i, c in enumerate(circuito.cargas, start=1):
-            if _es_mono(circuito):
-                print("  C%d: Z = %s" % (i, _fmt(c)))
-            else:
-                print("  C%d: %-4s Z_fase = %s  Z_Y = %s"
-                      % (i, c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
+        tabla = Table(title="Cargas", border_style="cyan")
+        if _es_mono(circuito):
+            tabla.add_column("#", style="bold")
+            tabla.add_column("Z", style="green")
+            for i, c in enumerate(circuito.cargas, start=1):
+                tabla.add_row(str(i), _fmt(c))
+        else:
+            tabla.add_column("#", style="bold")
+            tabla.add_column("Conexion", style="cyan")
+            tabla.add_column("Z_fase", style="green")
+            tabla.add_column("Z_Y", style="green")
+            for i, c in enumerate(circuito.cargas, start=1):
+                tabla.add_row(str(i), c["conexion"], _fmt(c["z_fase"]),
+                              _fmt(c["z_y"]))
+        _consola.print(tabla)
         return
 
     if cmd in ("limpiar", "reset", "clear"):
         circuito.limpiar_cargas()
-        print("  Cargas eliminadas.")
+        _consola.print("[green]Cargas eliminadas.[/]")
         return
 
     if cmd in ("resolver", "solve"):
@@ -653,141 +741,204 @@ def _ejecutar_comando(sesion, linea):
             circuito = sesion.circuito
         faltan = _diagnostico(circuito)
         if faltan:
-            print("  No se puede resolver el circuito (%s) todavia:" % sesion.modo)
-            for linea in faltan:
-                print("    - %s" % linea)
+            _consola.print(
+                Panel(
+                    f"No se puede resolver el circuito ({sesion.modo}) todavia:\n"
+                    + "\n".join(f"  - {linea}" for linea in faltan),
+                    title="Faltan datos",
+                    border_style="yellow",
+                )
+            )
             return
         try:
             circuito.resolver()
-            print(circuito.reporte())
+            _consola.print(
+                Panel(circuito.reporte(), title="Resultado", border_style="green")
+            )
         except Exception as err:
-            print("  ERROR: %s" % err)
-            print("  Tip: escriba 'ver' para revisar el estado del circuito.")
+            _consola.print(
+                Panel(
+                    f"[bold red]{err}[/]\n\n"
+                    "[dim]Tip: escriba 'ver' para revisar el estado del circuito.[/]",
+                    title="Error",
+                    border_style="red",
+                )
+            )
         return
 
     if cmd in ("reporte", "report"):
         try:
-            print(circuito.reporte())
+            _consola.print(
+                Panel(circuito.reporte(), title="Reporte", border_style="green")
+            )
         except Exception as err:
-            print("  ERROR: %s" % err)
-            print("  Tip: resuelva primero con 'resolver'.")
+            _consola.print(
+                Panel(
+                    f"[bold red]{err}[/]\n\n"
+                    "[dim]Tip: resuelva primero con 'resolver'.[/]",
+                    title="Error",
+                    border_style="red",
+                )
+            )
         return
 
     if cmd in ("ver", "estado", "show"):
-        print("  Modo: %s  (cambie con 'modo mono' o 'modo tri')" % sesion.modo)
+        tabla = Table(title=f"Estado (modo {sesion.modo})", border_style="cyan")
+        tabla.add_column("Variable", style="bold")
+        tabla.add_column("Valor", style="green")
         if _es_mono(circuito):
             v = circuito.v_fuente
-            if v is not None:
-                print("  Fuente: V = %s" % _fasor(v))
-            else:
-                print("  Fuente: no definida (use 'fuente', 'corriente' o 'vcarga')")
+            tabla.add_row("Fuente V", _fasor(v) if v is not None
+                          else "no definida")
         else:
             v = circuito.v_fuente_fase
-            if v is not None:
-                print("  Fuente: VL = %g V, fase a = %s"
-                      % (circuito.v_linea, _fasor(v)))
-            else:
-                print("  Fuente: no definida (use 'fuente', 'corriente' o 'vcarga')")
+            tabla.add_row("Fuente VL",
+                          f"{circuito.v_linea:g} V, fase a = {_fasor(v)}"
+                          if v is not None else "no definida")
         if circuito.i_fuente is not None:
-            print("  Corriente de fuente (dato): I = %s" % _fasor(circuito.i_fuente))
+            tabla.add_row("Corriente (dato)", _fasor(circuito.i_fuente))
         if circuito.v_carga_dato is not None:
-            print("  Tension en la carga (dato): V_f = %s" % _fasor(circuito.v_carga_dato))
-        print("  Linea:  Z = %s" % _fmt(circuito.z_linea))
-        print("  Cargas: %d" % len(circuito.cargas))
+            tabla.add_row("V en carga (dato)", _fasor(circuito.v_carga_dato))
+        tabla.add_row("Linea Z", _fmt(circuito.z_linea))
         for i, c in enumerate(circuito.cargas, start=1):
             if _es_mono(circuito):
-                print("    C%d: Z = %s" % (i, _fmt(c)))
+                tabla.add_row(f"Carga {i} Z", _fmt(c))
             elif c.get("por_potencia"):
-                print("    C%d: %-4s S = %s (por potencia) -> Z_fase = %s"
-                      % (i, c["conexion"], _fmt(c.get("s_total", 0)), _fmt(c["z_fase"])))
+                tabla.add_row(
+                    f"Carga {i} ({c['conexion']})",
+                    f"S = {_fmt(c.get('s_total', 0))} (por potencia) -> "
+                    f"Z_fase = {_fmt(c['z_fase'])}",
+                )
             else:
-                print("    C%d: %-4s Z_fase = %s" % (i, c["conexion"], _fmt(c["z_fase"])))
+                tabla.add_row(f"Carga {i} ({c['conexion']})",
+                              f"Z_fase = {_fmt(c['z_fase'])}")
         if circuito.z_eq is not None:
-            print("  Z_eq calculada = %s" % _fmt(circuito.z_eq))
+            tabla.add_row("Z_eq calculada", _fmt(circuito.z_eq))
+        _consola.print(tabla)
         faltan = _diagnostico(circuito)
         if faltan:
-            print("  ---")
-            print("  Faltan datos para resolver:")
-            for linea in faltan:
-                print("    - %s" % linea)
+            _consola.print(
+                Panel(
+                    "\n".join(f"  - {linea}" for linea in faltan),
+                    title="Faltan datos para resolver",
+                    border_style="yellow",
+                )
+            )
         else:
-            print("  Listo para resolver: escriba 'resolver'.")
+            _consola.print("[bold green]Listo para resolver:[/] escriba 'resolver'.")
         return
 
     # --- comandos de consulta de variables del circuito resuelto ---
     if cmd in ("variables", "todo", "reporte-completo"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
-        print(circuito.reporte())
+        _consola.print(
+            Panel(circuito.reporte(), title="Reporte completo", border_style="green")
+        )
         return
 
     if cmd in ("vl", "vlinea", "tension-linea"):
         if _es_mono(circuito):
-            print("  En modo monofasico no hay tension de linea/fase; use 'vf'.")
+            _consola.print(
+                "[yellow]En modo monofasico no hay tension de linea/fase; "
+                "use 'vf'.[/]"
+            )
             return
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
         r = circuito.resultado
-        print("  V_L fuente = %s" % _fasor(r.v_fuente_linea))
-        print("  V_L carga  = %s" % _fasor(r.v_carga * (3 ** 0.5)))
+        _consola.print(f"[bold cyan]V_L fuente:[/] {_fasor(r.v_fuente_linea)}")
+        _consola.print(f"[bold cyan]V_L carga:[/]  {_fasor(r.v_carga * (3 ** 0.5))}")
         return
 
     if cmd in ("vf", "vfase", "tension-fase"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
         r = circuito.resultado
         if _es_mono(circuito):
-            print("  V fuente = %s" % _fasor(r.v_fuente))
-            print("  V carga  = %s" % _fasor(r.v_carga))
+            _consola.print(f"[bold cyan]V fuente:[/] {_fasor(r.v_fuente)}")
+            _consola.print(f"[bold cyan]V carga:[/]  {_fasor(r.v_carga)}")
         else:
-            print("  V_f fuente = %s" % _fasor(r.v_fuente_fase))
-            print("  V_f carga  = %s" % _fasor(r.v_carga))
+            _consola.print(f"[bold cyan]V_f fuente:[/] {_fasor(r.v_fuente_fase)}")
+            _consola.print(f"[bold cyan]V_f carga:[/]  {_fasor(r.v_carga)}")
         return
 
     if cmd in ("il", "icorriente-linea", "corriente-linea"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
-        print("  I = %s  (|I| = %.4f A)" % (_fasor(circuito.resultado.i_linea),
-                                            abs(circuito.resultado.i_linea)))
+        _consola.print(
+            f"[bold cyan]I:[/] {_fasor(circuito.resultado.i_linea)}  "
+            f"[dim](|I| = {abs(circuito.resultado.i_linea):.4f} A)[/]"
+        )
         return
 
     if cmd in ("if", "corriente-fase", "ifase"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
         r = circuito.resultado
-        print("  Corrientes por carga:")
+        tabla = Table(title="Corrientes por carga", border_style="cyan")
+        tabla.add_column("#", style="bold")
+        tabla.add_column("Conexion", style="cyan")
+        tabla.add_column("I", style="green")
+        tabla.add_column("|I| (A)", style="green")
         for c in r.cargas:
             if _es_mono(circuito):
-                print("    C%d: I = %s  (|I| = %.4f A)"
-                      % (c["id"], _fasor(c["i"]), abs(c["i"])))
+                tabla.add_row(str(c["id"]), "-", _fasor(c["i"]),
+                              f"{abs(c['i']):.4f}")
             else:
-                print("    C%d (%s): I_f = %s  (|I| = %.4f A)"
-                      % (c["id"], c["conexion"], _fasor(c["i_fase"]), abs(c["i_fase"])))
+                tabla.add_row(str(c["id"]), c["conexion"], _fasor(c["i_fase"]),
+                              f"{abs(c['i_fase']):.4f}")
+        _consola.print(tabla)
         return
 
     if cmd in ("s", "potencia", "poder"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
         r = circuito.resultado
         s_total = r.s if _es_mono(circuito) else r.s3f
-        print("  S    = %s" % _fmt(s_total))
-        print("  P    = %.4f W" % r.P)
-        print("  Q    = %.4f var" % r.Q)
-        print("  |S|  = %.4f VA" % r.Sabs)
-        print("  FP   = %.4f" % r.fp)
-        print("  phi  = %.4f deg" % r.phi_deg)
+        tabla = Table(title="Potencia", border_style="cyan", box=None)
+        tabla.add_column("Magnitud", style="bold")
+        tabla.add_column("Valor", style="green")
+        tabla.add_row("S", _fmt(s_total))
+        tabla.add_row("P (W)", f"{r.P:.4f}")
+        tabla.add_row("Q (var)", f"{r.Q:.4f}")
+        tabla.add_row("|S| (VA)", f"{r.Sabs:.4f}")
+        tabla.add_row("FP", f"{r.fp:.4f}")
+        tabla.add_row("phi (deg)", f"{r.phi_deg:.4f}")
+        _consola.print(tabla)
         return
 
     if cmd in ("detalle", "carga-detalle", "dcarga"):
         # consultar el detalle de una carga específica
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print(
+                Panel("[red]Resuelva el circuito primero con 'resolver'.[/]",
+                      title="Error", border_style="red")
+            )
             return
         r = circuito.resultado
         if len(args) >= 1:
@@ -800,34 +951,40 @@ def _ejecutar_comando(sesion, linea):
                 error_analizador("circuito", "argumentos",
                                  "Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
             c = r.cargas[idx - 1]
+            tabla = Table(title=f"Carga {c['id']}", border_style="cyan", box=None)
+            tabla.add_column("Variable", style="bold")
+            tabla.add_column("Valor", style="green")
             if _es_mono(circuito):
-                print("  C%d: Z = %s" % (c["id"], _fmt(c["z"])))
-                print("    V = %s" % _fasor(c["v"]))
-                print("    I = %s  (|I| = %.4f A)" % (_fasor(c["i"]), abs(c["i"])))
-                print("    S = %s" % _fmt(c["s"]))
-                print("    P = %.4f W ;  Q = %.4f var ;  |S| = %.4f VA"
-                      % (c["P"], c["Q"], c["Sabs"]))
-                print("    FP = %.4f (%s), phi = %.4f deg"
-                      % (c["fp"], c["type"], c["phi_deg"]))
-                return
-            print("  C%d (%s): Z_fase = %s -> Z_Y = %s"
-                  % (c["id"], c["conexion"], _fmt(c["z_fase"]), _fmt(c["z_y"])))
-            print("    V_f = %s" % _fasor(c["v_fase"]))
-            print("    V_L = %s" % _fasor(c["v_linea_fasor"]))
-            print("    I_f = %s  (|I| = %.4f A)" % (_fasor(c["i_fase"]), abs(c["i_fase"])))
-            print("    I_L = %s  (|I| = %.4f A)" % (_fasor(c["i_linea"]), abs(c["i_linea"])))
-            print("    S   = %s" % _fmt(c["s3f"]))
-            print("    P   = %.4f W ;  Q = %.4f var ;  |S| = %.4f VA"
-                  % (c["P"], c["Q"], c["Sabs"]))
-            print("    FP  = %.4f (%s), phi = %.4f deg"
-                  % (c["fp"], c["type"], c["phi_deg"]))
+                tabla.add_row("Z", _fmt(c["z"]))
+                tabla.add_row("V", _fasor(c["v"]))
+                tabla.add_row("I", f"{_fasor(c['i'])}  (|I| = {abs(c['i']):.4f} A)")
+                tabla.add_row("S", _fmt(c["s"]))
+                tabla.add_row("P", f"{c['P']:.4f} W")
+                tabla.add_row("Q", f"{c['Q']:.4f} var")
+                tabla.add_row("|S|", f"{c['Sabs']:.4f} VA")
+                tabla.add_row("FP", f"{c['fp']:.4f} ({c['type']}), phi = {c['phi_deg']:.4f} deg")
+            else:
+                tabla.add_row("Z_fase", _fmt(c["z_fase"]))
+                tabla.add_row("Z_Y", _fmt(c["z_y"]))
+                tabla.add_row("V_f", _fasor(c["v_fase"]))
+                tabla.add_row("V_L", _fasor(c["v_linea_fasor"]))
+                tabla.add_row("I_f", f"{_fasor(c['i_fase'])}  (|I| = {abs(c['i_fase']):.4f} A)")
+                tabla.add_row("I_L", f"{_fasor(c['i_linea'])}  (|I| = {abs(c['i_linea']):.4f} A)")
+                tabla.add_row("S", _fmt(c["s3f"]))
+                tabla.add_row("P", f"{c['P']:.4f} W")
+                tabla.add_row("Q", f"{c['Q']:.4f} var")
+                tabla.add_row("|S|", f"{c['Sabs']:.4f} VA")
+                tabla.add_row("FP", f"{c['fp']:.4f} ({c['type']}), phi = {c['phi_deg']:.4f} deg")
+            _consola.print(tabla)
             return
-        print("  Uso: detalle <n>  (numero de carga, 1..%d)" % len(r.cargas))
+        _consola.print(
+            f"[yellow]Uso: detalle <n>  (numero de carga, 1..{len(r.cargas)})[/]"
+        )
         return
 
     if cmd in ("exportar", "export", "guardar"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print("[red]Resuelva el circuito primero con 'resolver'.[/]")
             return
         formato = "txt"
         archivo = None
@@ -845,7 +1002,7 @@ def _ejecutar_comando(sesion, linea):
         if not archivo:
             modo = sesion.modo
             archivo = "circuito_%s" % modo
-        from .utils import export_results, resolve_export_path
+        from ..utils import export_results, resolve_export_path
         try:
             if formato == "txt":
                 ruta = resolve_export_path(archivo)
@@ -857,20 +1014,20 @@ def _ejecutar_comando(sesion, linea):
                     fh.write(circuito.reporte())
             else:
                 ruta_creada = export_results(circuito.resultado, archivo, formato)
-            print("  Reporte exportado exitosamente a: %s" % ruta_creada)
+            _consola.print(f"[green]Reporte exportado exitosamente a:[/] {ruta_creada}")
         except Exception as err:
-            print("  ERROR al exportar: %s" % err)
+            _consola.print("[red]ERROR al exportar:[/] %s" % err)
         return
 
     if cmd in ("grafica", "graficar", "plot", "diagrama"):
         if circuito.resultado is None:
-            print("  ERROR: resuelva el circuito primero con 'resolver'.")
+            _consola.print("[red]Resuelva el circuito primero con 'resolver'.[/]")
             return
         tipo_grafica = "fasores"
         if len(args) >= 1 and args[0].lower() in ("potencia", "triangulo", "p", "s"):
             tipo_grafica = "potencia"
         import matplotlib.pyplot as plt
-        from .viz import phasor_plot, power_triangle
+        from ..gui.viz import phasor_plot, power_triangle
         try:
             r = circuito.resultado
             if tipo_grafica == "potencia":
@@ -886,9 +1043,9 @@ def _ejecutar_comando(sesion, linea):
                     etiquetas = ["Vf_fuente", "I_linea", "Vf_carga"]
                 ax = phasor_plot(fasores, etiquetas=etiquetas, titulo="Diagrama Fasorial - Circuito %s" % sesion.modo.capitalize())
             plt.show()
-            print("  Grafica generada correctamente.")
+            _consola.print("[green]Grafica generada correctamente.[/]")
         except Exception as err:
-            print("  ERROR al generar grafica: %s" % err)
+            _consola.print("[red]ERROR al generar grafica:[/] %s" % err)
         return
 
     # sugerir comandos parecidos si el usuario se equivoco de tipeo

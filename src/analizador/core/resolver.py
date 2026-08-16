@@ -5,10 +5,8 @@ Equivalente a ``app/resolverCalculo.m``. Devuelve ``(texto, result)`` donde
 la estructura de resultados (contrato) con ``.meta``.
 """
 
-from .core import polar_to_complex
-from .services import (service_analizar_carga, service_corregir_fp,
-                       service_per_unit, service_trifasico_carga)
-from .utils import format_results
+from .base import polar_to_complex
+from ..utils import format_results
 
 
 def resolver_calculo(id_, v):
@@ -21,6 +19,9 @@ def resolver_calculo(id_, v):
       'trifasico'   : v.VL, v.conexion, v.R, v.X
       'perUnit'     : v.Sbase, v.Vbase, v.fases, v.valor, v.tipoMag
     """
+    from ..services import (service_analizar_carga, service_corregir_fp,
+                            service_per_unit, service_trifasico_carga)
+
     try:
         if id_ == "potenciaPF":
             result = service_analizar_carga("PF", v.P, v.fp, v.tipo)
@@ -35,7 +36,7 @@ def resolver_calculo(id_, v):
             result = service_per_unit(v.Sbase, v.Vbase, v.fases, v.valor,
                                       v.tipoMag)
         else:
-            from .errors import error_analizador
+            from ..errors import error_analizador
             error_analizador("servicios", "modoDesconocido",
                              "Error: calculo no reconocido: {0}", id_)
 
@@ -46,6 +47,6 @@ def resolver_calculo(id_, v):
         return texto, result
     except Exception as err:
         texto = "ERROR\n" + str(err)
-        from .errors import construir_error
+        from ..errors import construir_error
         result = construir_error(err)
         return texto, result

@@ -20,10 +20,10 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from .core import (complex_power, polar_to_complex, power_factor,
+from .base import (complex_power, polar_to_complex, power_factor,
                    rad2deg, validate_input)
-from .errors import error_analizador
-from .modules.sistemas_trifasicos import normalizar_conexion
+from ..errors import error_analizador
+from ..modules.sistemas_trifasicos import normalizar_conexion
 
 
 class CircuitoTrifasico:

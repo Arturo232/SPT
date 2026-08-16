@@ -13,7 +13,7 @@ from typing import Union
 
 import numpy as np
 
-from .errors import error_analizador
+from ..errors import error_analizador
 
 _EPS = np.finfo(float).eps
 

@@ -5,16 +5,16 @@ Cada ejercicio solo consume funciones generales (core/módulos) y no tiene
 respuestas hardcodeadas.
 """
 
-from .core import (admittance_from_impedance, current_from_power,
+from .base import (admittance_from_impedance, current_from_power,
                    impedance_from_admittance, impedance_from_power,
                    power_factor, power_from_vi, rad2deg)
-from .modules.correccion_fp import (capacitor_kvar, capacitor_reactance,
-                                    capacitor_value, corrected_power_factor,
-                                    required_reactive_power)
-from .modules.potencia_compleja import (load_power_from_z, solve_carga,
-                                        source_current, sum_power)
-from .modules.circuitos import solve_series_rx
-from .utils import print_results
+from ..modules.correccion_fp import (capacitor_kvar, capacitor_reactance,
+                                     capacitor_value, corrected_power_factor,
+                                     required_reactive_power)
+from ..modules.potencia_compleja import (load_power_from_z, solve_carga,
+                                         source_current, sum_power)
+from ..modules.circuitos import solve_series_rx
+from ..utils import print_results
 
 
 def exercise01():
@@ -179,7 +179,7 @@ EXERCICIOS = {
 
 def menu_ejercicios():
     """Menú interactivo de los ejercicios del taller 2026."""
-    from .utils import input_helpers
+    from ..utils import input_helpers
     print("\n===== EJERCICIOS DEL TALLER 2026 =====")
     opcion = input_helpers("choice", "Seleccione ejercicio:", [
         "Ejercicio 1: carga serie R-X",
@@ -242,7 +242,7 @@ def example_fp_correction():
 
 def menu_ejemplos():
     """Menú interactivo de ejemplos reproducibles."""
-    from .utils import input_helpers
+    from ..utils import input_helpers
     print("\n===== EJEMPLOS =====")
     opcion = input_helpers("choice", "Seleccione ejemplo:", [
         "Dos cargas en paralelo (V = 200 V)",

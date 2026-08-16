@@ -5,7 +5,7 @@ Diagrama de fasores y triángulo de potencias con ``matplotlib``.
 
 import numpy as np
 
-from .core import validate_input
+from ..core.base import validate_input
 
 
 def phasor_plot(phasores, etiquetas=None, titulo="Diagrama de fasores"):
