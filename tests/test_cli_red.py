@@ -337,3 +337,102 @@ def test_gramatica_convive_con_cli_legacy(consola):
     assert "Desglose trifasico" in txt
 
 
+# ---------------------------------------------------------------------------
+# Layout adaptativo
+# ---------------------------------------------------------------------------
+def test_render_adaptativo_ancho_estrecho():
+    cons = Console(record=True, width=60)
+    cli._nav_reset()
+    cli._ejecutar(cons, "trifasico --fuente 208 --cargas Y:4+j2 D:5-j4")
+    txt = cons.export_text()
+    assert "1. Datos de entrada" in txt
+    assert "2. Proceso de reduccion" in txt
+    assert "3. Variables de estado" in txt
+    assert "4. Balance de potencia" in txt
+    assert "5. Desglose trifasico" in txt
+    assert "6. Interpretación técnica" in txt
+
+
+def test_render_adaptativo_ancho_amplio():
+    cons = Console(record=True, width=160)
+    cli._nav_reset()
+    cli._ejecutar(cons, "trifasico --fuente 208 --cargas Y:4+j2 D:5-j4")
+    txt = cons.export_text()
+    assert "1. Datos de entrada" in txt
+    assert "Desglose trifasico" in txt
+
+
+# ---------------------------------------------------------------------------
+# Fuente Fase (F) / Línea (L)
+# ---------------------------------------------------------------------------
+def test_parse_fuente_linea_prefijo():
+    datos = cli._parse_red_args(["--fuente", "L:208[30]", "--cargas", "Y:4+j2"])
+    assert datos.fuente_tipo == "L"
+    assert abs(datos.fuente) == pytest.approx(208, rel=1e-6)
+    assert cli._angulo_grados(datos.fuente) == pytest.approx(30, rel=1e-6)
+
+
+def test_parse_fuente_fase_prefijo():
+    datos = cli._parse_red_args(["--fuente", "F:120[0]", "--cargas", "Y:4+j2"])
+    assert datos.fuente_tipo == "F"
+    assert abs(datos.fuente) == pytest.approx(120, rel=1e-6)
+    assert cli._angulo_grados(datos.fuente) == pytest.approx(0, rel=1e-6)
+
+
+def test_parse_fuente_sin_prefijo_defecto_linea():
+    datos = cli._parse_red_args(["--fuente", "208", "--cargas", "Y:4+j2"])
+    assert datos.fuente_tipo == "L"
+    assert datos.fuente == pytest.approx(208 + 0j)
+
+
+def test_fuente_fase_magnitud_convertida(consola):
+    cli._ejecutar(consola, "trifasico --fuente F:120[0] --cargas Y:4+j2")
+    txt = consola.export_text()
+    assert "Fuente (fase)" in txt
+    assert "sqrt(3)" in txt
+    assert "V_LN = 120 V" in txt
+
+
+def test_fuente_angulo_linea_opcion_b(consola):
+    # L:208[30] -> fase 'a' = 30 - 30 = 0 deg
+    cli._ejecutar(consola, "trifasico --fuente L:208[30] --cargas Y:4+j2")
+    txt = consola.export_text()
+    assert "Fuente (linea)" in txt
+    assert "restando 30" in txt
+    # la tension de fase en la carga debe estar casi en 0 deg (despues de linea)
+    assert "120.089 angulo 0 deg" in txt or "120.089" in txt
+
+
+# ---------------------------------------------------------------------------
+# Panel interpretativo
+# ---------------------------------------------------------------------------
+def test_panel_interpretativo_presente(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    txt = consola.export_text()
+    assert "6. Interpretación técnica" in txt
+    assert "Conversión aplicada" in txt
+    assert "Diagnóstico del sistema" in txt
+    assert "Factor de potencia global" in txt
+
+
+def test_diagnostico_inductivo_vs_capacitivo(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    txt = consola.export_text()
+    assert "INDUCTIVO" in txt
+    assert "Q > 0" in txt
+
+    cons2 = Console(record=True)
+    cli._nav_reset()
+    cli._ejecutar(cons2, "trifasico --fuente 208 --cargas D:5-j4")
+    txt2 = cons2.export_text()
+    assert "CAPACITIVO" in txt2
+    assert "Q < 0" in txt2
+
+
+def test_evalua_factor_potencia(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    txt = consola.export_text()
+    assert "FP =" in txt
+    assert "%)" in txt
+
+

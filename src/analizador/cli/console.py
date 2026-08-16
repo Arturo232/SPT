@@ -259,11 +259,38 @@ def _parse_carga_token(token: str):
     return tipo, z
 
 
+def _parse_fuente_token(token: str):
+    """Interpreta un token de fuente ``Tipo:Valor``.
+
+    Tipos aceptados:
+      - ``L:`` tensión de línea (V_LL).
+      - ``F:`` tensión de fase (V_LN).
+      - Sin prefijo: se asume línea (L) por defecto.
+
+    El valor complejo acepta rectangular ``a+jb`` o polar ``M[ángulo]``.
+    Regresa ``(tipo, complejo)`` donde ``tipo`` es 'L' o 'F'.
+    """
+    token = token.strip()
+    if not token:
+        raise ValueError("token de fuente vacio")
+    if token[0] in "lLfF" and len(token) > 1 and token[1] == ":":
+        tipo_txt = token[0].upper()
+        valor_txt = token[2:]
+        tipo = "L" if tipo_txt == "L" else "F"
+    else:
+        tipo = "L"
+        valor_txt = token
+    z = _parse_complejo_valor(valor_txt)
+    return tipo, z
+
+
 def _parse_red_args(args: list[str]):
     """Interpreta los argumentos de línea de comando de una red.
 
     Opciones aceptadas:
-      --fuente <V>             Tensión de la fuente [V].
+      --fuente <Tipo:Valor>    Tensión de la fuente [V]. Puede llevar el
+                               prefijo ``L:`` (línea, V_LL) o ``F:`` (fase,
+                               V_LN). Sin prefijo se asume Línea.
       --cargas <Tipo:Valor>... Lista dinámica de 'N' cargas (1, 2 o N).
       --linea <Z>              Un tramo de impedancia de línea.
       --lineas <Z>...          Varios tramos de impedancia de línea (se suman).
@@ -271,9 +298,10 @@ def _parse_red_args(args: list[str]):
                                en paralelo (no altera el cálculo).
 
     Cada valor complejo acepta rectangular ``a+jb`` o polar ``M[ángulo]``.
-    Regresa ``SimpleNamespace(fuente, cargas, lineas, paralelo)``.
+    Regresa ``SimpleNamespace(fuente, fuente_tipo, cargas, lineas, paralelo)``.
     """
     fuente = None
+    fuente_tipo = "L"
     cargas: list[tuple[str, complex]] = []
     lineas: list[complex] = []
     paralelo = False
@@ -287,7 +315,7 @@ def _parse_red_args(args: list[str]):
             if nombre in ("--fuente", "-f"):
                 if i + 1 >= n:
                     raise ValueError("falta el valor de --fuente")
-                fuente = _parse_complejo_valor(args[i + 1])
+                fuente_tipo, fuente = _parse_fuente_token(args[i + 1])
                 i += 2
             elif nombre in ("--cargas", "-c"):
                 # recoge todos los tokens siguientes que no sean una opcion
@@ -323,8 +351,60 @@ def _parse_red_args(args: list[str]):
         else:
             raise ValueError(f"argumento inesperado: '{tok}'. "
                              "Use --fuente, --cargas, --linea/--lineas.")
-    return SimpleNamespace(fuente=fuente, cargas=cargas, lineas=lineas,
-                           paralelo=paralelo)
+    return SimpleNamespace(fuente=fuente, fuente_tipo=fuente_tipo,
+                           cargas=cargas, lineas=lineas, paralelo=paralelo)
+
+
+def _aplicar_fuente(circuito, fuente: complex, fuente_tipo: str) -> dict:
+    """Aplica la tensión de la fuente al circuito aplicando las conversiones.
+
+    Regresa un dict con información de la conversión para el panel:
+      ``{tipo, mag_entrada, ang_entrada, mag_fase, ang_fase, v_linea}``.
+
+    Convenciones:
+      - ``L`` (línea, V_LL):  V_LN = V_LL/sqrt(3) y, según la convención
+        estándar, el fasor de fase 'a' se deriva restando 30° al ángulo de
+        línea: ``v_fase_ang = ang_L - 30``.
+      - ``F`` (fase, V_LN):   V_LL = sqrt(3)*V_LN; el ángulo es directamente
+        el de la fase 'a'.
+    """
+    mag = abs(fuente)
+    ang = _angulo_grados(fuente)
+    tipo = fuente_tipo.upper() if fuente_tipo else "L"
+
+    if tipo == "F":
+        ang_fase = ang
+        circuito.set_fuente(mag, ang_fase, "fase")
+        info = {
+            "tipo": "F",
+            "mag_entrada": mag,
+            "ang_entrada": ang,
+            "mag_fase": mag,
+            "ang_fase": ang_fase,
+            "v_linea": circuito.v_linea,
+        }
+    else:  # L (por defecto)
+        ang_fase = ang - 30.0
+        circuito.set_fuente(mag, ang_fase, "linea")
+        info = {
+            "tipo": "L",
+            "mag_entrada": mag,
+            "ang_entrada": ang,
+            "mag_fase": circuito.v_linea / _sqrt3(),
+            "ang_fase": ang_fase,
+            "v_linea": circuito.v_linea,
+        }
+    return info
+
+
+def _angulo_grados(z) -> float:
+    import math
+    return math.degrees(math.atan2(z.imag, z.real))
+
+
+def _sqrt3() -> float:
+    import math
+    return math.sqrt(3)
 
 
 # ---------------------------------------------------------------------------
@@ -345,14 +425,22 @@ def _fmt_estado(tipo: str) -> str:
     return "resistivo"
 
 
-def _renderizar_red(consola: Console, circuito, res, modo: str) -> None:
-    """Renderiza las 4 componentes visuales de un circuito resuelto."""
+def _renderizar_red(consola: Console, circuito, res, modo: str,
+                    fuente_tipo: str = "L") -> None:
+    """Renderiza las 4 componentes visuales de un circuito resuelto.
+
+    Los paneles y tablas usan ``expand=True`` para adaptarse dinámicamente al
+    ancho de la terminal (redimensionado automático).
+    """
     es_tri = modo == "trifasico"
 
     # --- Panel 1: Datos de entrada ------------------------------------
     datos = Text()
     if es_tri:
-        datos.append("Fuente: V_L = ", style="bold")
+        if fuente_tipo == "F":
+            datos.append("Fuente (fase): V_f = ", style="bold")
+        else:
+            datos.append("Fuente (linea): V_L = ", style="bold")
         datos.append(f"{circuito.v_linea:g} V", style="yellow")
         datos.append("\n")
     else:
@@ -373,12 +461,12 @@ def _renderizar_red(consola: Console, circuito, res, modo: str) -> None:
             datos.append(f"Z = {_fmt_complejo(c)}", style="green")
         datos.append("\n")
     consola.print(Panel(datos, title="1. Datos de entrada",
-                        border_style="cyan"))
+                        border_style="cyan", expand=True))
 
     # --- Tabla 2: Proceso de reduccion ---------------------------------
     reduccion = Table(
         title="2. Proceso de reduccion (equivalente por fase)",
-        border_style="blue", box=None)
+        border_style="blue", box=None, expand=True)
     reduccion.add_column("Carga", style="bold cyan")
     reduccion.add_column("Conexion", style="yellow")
     reduccion.add_column("Z_fase", style="green")
@@ -424,11 +512,12 @@ def _renderizar_red(consola: Console, circuito, res, modo: str) -> None:
         estado.append(f"   (|V| = {abs(res.v_carga):.4g} V)")
         estado.append("\n")
     consola.print(Panel(estado, title="3. Variables de estado",
-                        border_style="magenta"))
+                        border_style="magenta", expand=True))
 
     # --- Tabla 4: Balance de potencia ----------------------------------
     balance = Table(
-        title="4. Balance de potencia", border_style="green", box=None)
+        title="4. Balance de potencia", border_style="green", box=None,
+        expand=True)
     balance.add_column("Carga", style="bold cyan")
     balance.add_column("P [kW]", justify="right")
     balance.add_column("Q [kVAR]", justify="right")
@@ -456,6 +545,10 @@ def _renderizar_red(consola: Console, circuito, res, modo: str) -> None:
     if es_tri:
         _renderizar_desglose_trifasico(consola, res)
 
+    # --- Panel 6: Interpretacion tecnica ---------------------------------
+    _renderizar_panel_interpretativo(
+        consola, circuito, res, es_tri, fuente_tipo)
+
 
 def _fasores_abc(z):
     """Devuelve los tres fasores balanceados (a, b, c) desde la fase 'a'.
@@ -481,7 +574,7 @@ def _renderizar_desglose_trifasico(consola: Console, res) -> None:
     """
     tabla = Table(
         title="5. Desglose trifasico por carga (3 hilos)",
-        border_style="yellow", box=None)
+        border_style="yellow", box=None, expand=True)
     tabla.add_column("Carga", style="bold cyan")
     tabla.add_column("Magnitud", style="bold")
     tabla.add_column("Fase a", style="green")
@@ -508,6 +601,81 @@ def _renderizar_desglose_trifasico(consola: Console, res) -> None:
                 f"C{k} (D)", "I_ab/I_bc/I_ca [A]",
                 _fmt_complejo(iab), _fmt_complejo(ibc), _fmt_complejo(ica))
     consola.print(tabla)
+
+
+def _renderizar_panel_interpretativo(consola: Console, circuito, res,
+                                     es_tri: bool, fuente_tipo: str) -> None:
+    """Renderiza el panel explicativo con la interpretación técnica.
+
+    Incluye:
+      - La conversión línea/fase aplicada.
+      - Diagnóstico del sistema según ``Q`` total.
+      - Evaluación del factor de potencia global.
+    """
+    if not es_tri:
+        return
+
+    contenido = Text()
+
+    # 1) Conversión línea/fase aplicada
+    contenido.append("Conversión aplicada\n", style="bold underline")
+    if fuente_tipo == "F":
+        v_fase = circuito.v_linea / _sqrt3()
+        contenido.append(
+            "Se ingresó tensión de FASE. Se convirtió a línea con "
+            f"[yellow]V_LL = sqrt(3)·V_LN = {circuito.v_linea:.4g} V[/] "
+            f"(V_LN = {v_fase:.4g} V). "
+            "El ángulo dado es el de la fase 'a'.\n"
+        )
+    else:
+        v_fase = circuito.v_linea / _sqrt3()
+        contenido.append(
+            "Se ingresó tensión de LÍNEA. Se convirtió a fase con "
+            f"[yellow]V_LN = V_LL/sqrt(3) = {v_fase:.4g} V[/] "
+            f"(V_LL = {circuito.v_linea:.4g} V). "
+            "El fasor de fase 'a' se obtuvo restando 30° al ángulo de línea "
+            "(convención estándar).\n"
+        )
+
+    # 2) Diagnóstico del sistema
+    contenido.append("\nDiagnóstico del sistema\n", style="bold underline")
+    q = res.Q
+    if abs(q) < 1e-6:
+        diag = "RESISTIVO"
+        color = "yellow"
+        nota = "La potencia reactiva total es casi nula."
+    elif q > 0:
+        diag = "PREDOMINANTEMENTE INDUCTIVO"
+        color = "red"
+        nota = ("Q > 0: la carga consume reactiva (bobinas). "
+                "Para mejorar el FP se compensaría con capacitores.")
+    else:
+        diag = "PREDOMINANTEMENTE CAPACITIVO"
+        color = "cyan"
+        nota = ("Q < 0: la carga entrega reactiva (capacitores). "
+                "Sistema en adelanto.")
+    contenido.append(f"{diag}\n", style=f"bold {color}")
+    contenido.append(f"Q_total = {q / 1000:.4g} kVAR. {nota}\n")
+
+    # 3) Evaluación del factor de potencia
+    contenido.append("\nFactor de potencia global\n", style="bold underline")
+    fp = res.fp
+    fp_pct = fp * 100
+    contenido.append(f"FP = {fp:.4g}  ({fp_pct:.1f}%)  ")
+    if fp >= 0.95:
+        contenido.append("[green]Excelente:[/] pérdidas y caídas por reactiva son mínimas.\n")
+    elif fp >= 0.85:
+        contenido.append("[yellow]Aceptable:[/] se podría mejorar con corrección si la instalación es grande.\n")
+    else:
+        contenido.append(
+            "[red]Bajo:[/] se recomienda corrección del factor de potencia "
+            "(banco de capacitores) para reducir corriente y pérdidas.\n"
+        )
+
+    consola.print(
+        Panel(contenido, title="6. Interpretación técnica",
+              border_style="bright_magenta", expand=True)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -832,13 +1000,14 @@ def _cmd_trifasico_cli(consola: Console, args: list[str]) -> None:
         return
 
     circuito = CircuitoTrifasico()
-    circuito.set_fuente(abs(datos.fuente), 0.0, "linea")
+    info_fuente = _aplicar_fuente(circuito, datos.fuente, datos.fuente_tipo)
     if datos.lineas:
         circuito.set_linea(sum(datos.lineas))
     for tipo, z in datos.cargas:
         circuito.agregar_carga(tipo, z)
     res = circuito.resolver()
-    _renderizar_red(consola, circuito, res, "trifasico")
+    _renderizar_red(consola, circuito, res, "trifasico",
+                    fuente_tipo=info_fuente["tipo"])
 
 
 def _cmd_monofasico(consola: Console, args: list[str] | None = None) -> None:
@@ -899,12 +1068,14 @@ def _mostrar_error_args(consola: Console, err: Exception) -> None:
         Panel(
             f"[bold red]{err}[/]\n\n"
             "Sintaxis:\n"
-            "  trifasico  --fuente <V> --cargas <Y|D>:<Z>... "
+            "  trifasico  --fuente [L|F]:<V> --cargas <Y|D>:<Z>... "
             "[--linea <Z> | --lineas <Z>...]\n"
             "  monofasico --fuente <V> --cargas <Z>... "
             "[--linea <Z> | --lineas <Z>...]\n"
+            "  L = tension de linea (V_LL), F = tension de fase (V_LN). "
+            "Sin prefijo se asume L.\n"
             "  Z acepta rectangular 'a+jb' o polar 'M[angulo]'.\n"
-            "  Ej: trifasico --fuente 208 --cargas Y:4+j2 D:5-j4 --linea 8+j4",
+            "  Ej: trifasico --fuente L:208[30] --cargas Y:4+j2 D:5-j4 --linea 8+j4",
             title="Argumentos invalidos",
             border_style="red",
         )
@@ -1071,9 +1242,10 @@ def _cmd_help(consola: Console) -> None:
     )
     consola.print(
         "\n[dim]'trifasico' y 'monofasico' aceptan tambien argumentos CLI:[/]\n"
-        "  [cyan]trifasico --fuente 208 --cargas Y:4+j2 D:5-j4 --linea 8+j4[/]\n"
+        "  [cyan]trifasico --fuente L:208[30] --cargas Y:4+j2 D:5-j4 --linea 8+j4[/]\n"
         "  [cyan]monofasico --fuente 120 --cargas 4+j2 5-j4 --lineas 8+j4 2+j1[/]\n"
-        "  [dim]Banderas autocompletadas: --fuente --cargas --linea --lineas "
+        "  [dim]L = tension de linea (defecto), F = tension de fase. "
+        "Banderas autocompletadas: --fuente --cargas --linea --lineas "
         "--paralelo[/]\n"
     )
     consola.print(
