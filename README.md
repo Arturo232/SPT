@@ -46,6 +46,24 @@ spt
 > escribiendo simplemente `spt` en la terminal. El punto de entrada `main()`
 > de `analizador/cli/console.py` es el que inicia la REPL.
 
+> ⚠️ **Importante: `spt` se registra dentro del entorno virtual `.venv`**
+> El comando `spt` queda registrado únicamente en la carpeta aislada `.venv`
+> (en `bin/` en Linux/macOS, o `Scripts\` en Windows). Por lo tanto, al abrir
+> una **sesión o ventana de terminal completamente nueva** (Linux o Windows),
+> es necesario activar primero el entorno virtual antes de ejecutar `spt`:
+>
+> - Linux/macOS: `source .venv/bin/activate`
+> - Windows: `.venv\Scripts\activate`
+>
+> **Tips de productividad (ejecución global sin activar el entorno):**
+>
+> - **Linux (Arch/Debian/Ubuntu)** — crear un alias en el archivo de
+>   configuración del shell (`~/.bashrc` o `~/.zshrc`):
+>   `alias spt='source /ruta/al/proyecto/SPT/.venv/bin/activate && spt'`
+>   O instalar de forma global con `pipx`: `pipx install -e .`
+> - **Windows** — agregar la ruta completa de `.venv\Scripts` a las Variables
+>   de Entorno del Sistema (PATH).
+
 ---
 
 ## 📖 Descripción General
