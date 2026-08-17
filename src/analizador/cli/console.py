@@ -301,10 +301,14 @@ def _parse_red_args(args: list[str]):
       --carga-fp <n>           Índice de la carga a corregir en FP (default 1).
       --fp <objetivo>          FP objetivo en atraso para la corrección
                                (default 0.8).
+      --graficar [flags...]    Visualiza los fasores tras resolver. Acepta al
+                               final de la linea los flags de visualizacion:
+                               tensiones | corrientes | potencia | --monofasico
+                               | -m | --1f | --1p | --guardar <ruta>.
 
     Cada valor complejo acepta rectangular ``a+jb`` o polar ``M[ángulo]``.
     Regresa ``SimpleNamespace(fuente, fuente_tipo, cargas, lineas, paralelo,
-    taller, carga_fp, fp_objetivo)``.
+    taller, carga_fp, fp_objetivo, graficar, graficar_args)``.
     """
     fuente = None
     fuente_tipo = "L"
@@ -314,6 +318,8 @@ def _parse_red_args(args: list[str]):
     taller = False
     carga_fp = 1
     fp_objetivo = 0.8
+    graficar = False
+    graficar_args: list[str] = []
 
     i = 0
     n = len(args)
@@ -378,6 +384,17 @@ def _parse_red_args(args: list[str]):
                 if not (0.0 < fp_objetivo <= 1.0):
                     raise ValueError("--fp debe estar entre 0 y 1")
                 i += 2
+            elif nombre == "--graficar":
+                graficar = True
+                # Captura y valida las banderas de visualización restantes.
+                i += 1
+                while i < n:
+                    graficar_args.append(args[i])
+                    i += 1
+                    if args[i - 1].lower() == "--guardar":
+                        break
+                _validar_flags_graficar(graficar_args)
+                i = n
             else:
                 raise ValueError(f"opcion desconocida: '{tok}'")
         else:
@@ -386,7 +403,36 @@ def _parse_red_args(args: list[str]):
     return SimpleNamespace(fuente=fuente, fuente_tipo=fuente_tipo,
                            cargas=cargas, lineas=lineas, paralelo=paralelo,
                            taller=taller, carga_fp=carga_fp,
-                           fp_objetivo=fp_objetivo)
+                           fp_objetivo=fp_objetivo,
+                           graficar=graficar, graficar_args=graficar_args)
+
+
+# Flags de visualización válidos tras --graficar (con o sin guiones dobles).
+_FLAGS_GRAFICAR = {
+    "tensiones", "corrientes", "potencia",
+    "--tensiones", "--corrientes", "--potencia",
+    "--monofasico", "-m", "--1f", "--1p", "--guardar",
+}
+
+
+def _validar_flags_graficar(flags: list[str]) -> None:
+    """Valida estrictamente los tokens que acompañan a ``--graficar``.
+
+    Lanza ``ValueError`` con un mensaje limpio si algún token no es una
+    bandera de visualización conocida.
+    """
+    valores = {
+        "tensiones": "--tensiones", "corrientes": "--corrientes",
+        "potencia": "--potencia",
+    }
+    for tok in flags:
+        nombre = tok.lower()
+        if nombre in _FLAGS_GRAFICAR or nombre in valores:
+            continue
+        raise ValueError(
+            f"bandera de visualizacion desconocida: '{tok}'. Use: "
+            "tensiones | corrientes | potencia | --monofasico | -m | "
+            "--1f | --1p | --guardar <ruta>.")
 
 
 def _aplicar_fuente(circuito, fuente: complex, fuente_tipo: str) -> dict:
@@ -483,11 +529,45 @@ def _regulacion_voltaje(v_carga_linea, v_fuente_linea):
 # ---------------------------------------------------------------------------
 # Renderizado estandarizado de redes (trifasico / monofasico)
 # ---------------------------------------------------------------------------
-def _fmt_complejo(z) -> str:
-    from analizador.utils import format_complex
+def _prefijo_ing(valor) -> tuple[float, str]:
+    """Descompone un valor en ``(coeficiente, prefijo SI)``.
 
-    rect, polar = format_complex(z)
-    return f"{rect}  ({polar})"
+    El exponente es múltiplo de 3 (notación de ingeniería): ``12.14 k``,
+    ``4.33 M``, ``530.5 µ``. Evita la notación científica (``e+03``).
+    """
+    import math
+
+    if valor == 0 or not math.isfinite(valor):
+        return valor, ""
+    exp = int(math.floor(math.log10(abs(valor)) / 3)) * 3
+    exp = max(-12, min(12, exp))
+    prefijos = {12: "T", 9: "G", 6: "M", 3: "k", 0: "",
+                -3: "m", -6: "µ", -9: "n", -12: "p"}
+    return valor / (10.0 ** exp), prefijos[exp]
+
+
+def _formato_numero(valor, unidad: str = "") -> str:
+    """Número con prefijo de ingeniería y unidad: ``120.1 V``, ``12.14 kVAR``."""
+    coef, pref = _prefijo_ing(valor)
+    texto = f"{coef:.4g} {pref}{unidad}".strip()
+    return texto
+
+
+def _fmt_rect(z) -> str:
+    """Forma rectangular ``a + jb`` de un complejo (apoyo secundario)."""
+    a = z.real
+    b = z.imag
+    if abs(b) < 1e-12 * max(1, abs(z)):
+        return f"{a:.4g}"
+    if abs(a) < 1e-12 * max(1, abs(z)):
+        return f"{b:.4g}j"
+    signo = "+" if b >= 0 else "-"
+    return f"{a:.4g} {signo} j{abs(b):.4g}"
+
+
+def _fmt_complejo(z) -> str:
+    """Formato estándar: polar ``M ∠ A°`` principal y rectangular ``(a + jb)``."""
+    return f"{_fmt_polar(z)}  ({_fmt_rect(z)})"
 
 
 def _fmt_estado(tipo: str) -> str:
@@ -514,11 +594,11 @@ def _renderizar_red(consola: Console, circuito, res, modo: str,
             datos.append("Fuente (fase): V_f = ", style="bold")
         else:
             datos.append("Fuente (linea): V_L = ", style="bold")
-        datos.append(f"{circuito.v_linea:g} V", style="yellow")
+        datos.append(f"{_formato_numero(circuito.v_linea, 'V')}", style="yellow")
         datos.append("\n")
     else:
         datos.append("Fuente: V = ", style="bold")
-        datos.append(f"{circuito.v:g} V", style="yellow")
+        datos.append(f"{_formato_numero(circuito.v, 'V')}", style="yellow")
         datos.append("\n")
     if circuito.z_linea:
         datos.append("Linea(s): Z_linea = ", style="bold")
@@ -569,20 +649,21 @@ def _renderizar_red(consola: Console, circuito, res, modo: str,
     estado = Text()
     estado.append("Corriente de linea  I_L = ", style="bold")
     estado.append(_fmt_complejo(res.i_linea), style="green")
-    estado.append(f"   (|I| = {abs(res.i_linea):.4g} A)")
+    estado.append(f"   (|I| = {_formato_numero(abs(res.i_linea), 'A')})")
     estado.append("\n")
     if es_tri:
         estado.append("Tension de fase en la carga  V_f = ", style="bold")
         estado.append(_fmt_complejo(res.v_carga), style="green")
-        estado.append(f"   (|V| = {abs(res.v_carga):.4g} V)")
+        estado.append(f"   (|V| = {_formato_numero(abs(res.v_carga), 'V')})")
         estado.append("\n")
         estado.append("Tension de linea en la carga  V_L = ", style="bold")
-        estado.append(f"{res.v_carga_linea:.4g} V", style="green")
+        estado.append(f"{_formato_numero(res.v_carga_linea, 'V')}",
+                      style="green")
         estado.append("\n")
     else:
         estado.append("Tension en la carga  V = ", style="bold")
         estado.append(_fmt_complejo(res.v_carga), style="green")
-        estado.append(f"   (|V| = {abs(res.v_carga):.4g} V)")
+        estado.append(f"   (|V| = {_formato_numero(abs(res.v_carga), 'V')})")
         estado.append("\n")
     consola.print(Panel(estado, title="3. Variables de estado",
                         border_style="magenta", expand=True))
@@ -592,24 +673,24 @@ def _renderizar_red(consola: Console, circuito, res, modo: str,
         title="4. Balance de potencia", border_style="green", box=None,
         expand=True)
     balance.add_column("Carga", style="bold cyan")
-    balance.add_column("P [kW]", justify="right")
-    balance.add_column("Q [kVAR]", justify="right")
-    balance.add_column("S [kVA]", justify="right")
+    balance.add_column("P", justify="right")
+    balance.add_column("Q", justify="right")
+    balance.add_column("S", justify="right")
     balance.add_column("fp", justify="right")
     for k, c in enumerate(res.cargas, start=1):
         balance.add_row(
             f"C{k}",
-            f"{c['P'] / 1000:.4g}",
-            f"{c['Q'] / 1000:.4g}",
-            f"{c['Sabs'] / 1000:.4g}",
+            _formato_numero(c["P"], "W"),
+            _formato_numero(c["Q"], "var"),
+            _formato_numero(c["Sabs"], "VA"),
             f"{c['fp']:.4g} ({_fmt_estado(c['type'])})",
         )
     balance.add_section()
     balance.add_row(
         "[bold]Total[/]",
-        f"[bold]{res.P / 1000:.4g}[/]",
-        f"[bold]{res.Q / 1000:.4g}[/]",
-        f"[bold]{res.Sabs / 1000:.4g}[/]",
+        f"[bold]{_formato_numero(res.P, 'W')}[/]",
+        f"[bold]{_formato_numero(res.Q, 'var')}[/]",
+        f"[bold]{_formato_numero(res.Sabs, 'VA')}[/]",
         f"[bold]{res.fp:.4g}[/] ({_fmt_estado(res.type)})",
     )
     consola.print(balance)
@@ -695,17 +776,17 @@ def _renderizar_panel_interpretativo(consola: Console, circuito, res,
     if fuente_tipo == "F":
         v_fase = circuito.v_linea / _sqrt3()
         contenido.append(
-            "Se ingresó tensión de FASE. Se convirtió a línea con "
-            f"[yellow]V_LL = sqrt(3)·V_LN = {circuito.v_linea:.4g} V[/] "
-            f"(V_LN = {v_fase:.4g} V). "
+            "Se ingresó tensión de FASE. Se convirtió a línea: "
+            f"[yellow]V_LL = {_formato_numero(circuito.v_linea, 'V')}[/] "
+            f"(V_LN = {_formato_numero(v_fase, 'V')}). "
             "El ángulo dado es el de la fase 'a'.\n"
         )
     else:
         v_fase = circuito.v_linea / _sqrt3()
         contenido.append(
-            "Se ingresó tensión de LÍNEA. Se convirtió a fase con "
-            f"[yellow]V_LN = V_LL/sqrt(3) = {v_fase:.4g} V[/] "
-            f"(V_LL = {circuito.v_linea:.4g} V). "
+            "Se ingresó tensión de LÍNEA. Se convirtió a fase: "
+            f"[yellow]V_LN = {_formato_numero(v_fase, 'V')}[/] "
+            f"(V_LL = {_formato_numero(circuito.v_linea, 'V')}). "
             "El fasor de fase 'a' se obtuvo restando 30° al ángulo de línea "
             "(convención estándar).\n"
         )
@@ -728,7 +809,7 @@ def _renderizar_panel_interpretativo(consola: Console, circuito, res,
         nota = ("Q < 0: la carga entrega reactiva (capacitores). "
                 "Sistema en adelanto.")
     contenido.append(f"{diag}\n", style=f"bold {color}")
-    contenido.append(f"Q_total = {q / 1000:.4g} kVAR. {nota}\n")
+    contenido.append(f"Q_total = {_formato_numero(q, 'var')}. {nota}\n")
 
     # 3) Evaluación del factor de potencia
     contenido.append("\nFactor de potencia global\n", style="bold underline")
@@ -751,19 +832,10 @@ def _renderizar_panel_interpretativo(consola: Console, circuito, res,
     )
 
 
-def _bloque_inciso(consola, letra: str, titulo: str, formula: str,
-                   sustitucion: str, resultado_rect, resultado_polar) -> None:
-    """Renderiza un inciso académico en un panel rich independiente."""
+def _bloque_inciso(consola, letra: str, titulo: str, resultado: str) -> None:
+    """Renderiza un inciso académico: variable y valor (sin fórmulas)."""
     cuerpo = Text()
-    cuerpo.append(f"Fórmula:  ", style="bold")
-    cuerpo.append(formula, style="italic cyan")
-    cuerpo.append("\n")
-    cuerpo.append(f"Sustitución:  ", style="bold")
-    cuerpo.append(sustitucion, style="yellow")
-    cuerpo.append("\n")
-    cuerpo.append(f"Resultado:  ", style="bold")
-    cuerpo.append(resultado_rect, style="green")
-    cuerpo.append(f"   =   {resultado_polar}", style="dim")
+    cuerpo.append(resultado, style="green")
     consola.print(
         Panel(cuerpo, title=f"Inciso ({letra}) — {titulo}",
               border_style="blue", expand=True))
@@ -845,38 +917,29 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
     i_l = res.i_linea
     _bloque_inciso(
         consola, "a", "Corriente de la fuente",
-        "I_L = V_fuente / Z_total",
-        f"V_fuente = {_fmt_complejo(res.v_fuente_fase)} ; "
-        f"Z_total = {_fmt_complejo(res.z_total)}",
-        _fmt_complejo(i_l), _fmt_polar(i_l),
+        f"I_L = {_fmt_complejo(i_l)}",
     )
 
-    # (b) Potencia compleja por valores de fase
+    # (b) Potencia compleja total (valores de fase)
     s3f_fase = res.s3f  # ya es 3*V_f*conj(I_f)
     _bloque_inciso(
         consola, "b", "Potencia compleja total (valores de fase)",
-        "S_3f = 3 * V_f * conj(I_f)",
-        f"3 * {_fmt_complejo(res.v_fuente_fase)} * conj({_fmt_complejo(i_l)})",
-        _fmt_complejo(s3f_fase), _fmt_polar(s3f_fase),
+        f"S_3f = {_fmt_complejo(s3f_fase)}",
     )
 
-    # (c) Potencia compleja por valores de línea
+    # (c) Potencia compleja total (valores de línea)
     v_ll_fasor = res.v_fuente_linea
     s3f_linea = _potencia_3f_por_linea(v_ll_fasor, i_l)
     _bloque_inciso(
         consola, "c", "Potencia compleja total (valores de línea)",
-        "S_3f = sqrt(3) * V_L * conj(I_L)",
-        f"sqrt(3) * {_fmt_complejo(v_ll_fasor)} * conj({_fmt_complejo(i_l)})",
-        _fmt_complejo(s3f_linea), _fmt_polar(s3f_linea),
+        f"S_3f = {_fmt_complejo(s3f_linea)}",
     )
 
     # (d) Tensión de línea en el nodo de las cargas
     v_ll_carga = res.v_carga_linea
     _bloque_inciso(
         consola, "d", "Tensión de línea en el nodo de cargas",
-        "V_LL_carga = |V_f_carga| * sqrt(3)",
-        f"|{_fmt_complejo(res.v_carga)}| * sqrt(3)",
-        f"{v_ll_carga:.4g} V", f"{v_ll_carga:.4g} V rms",
+        f"V_LL_carga = {_formato_numero(v_ll_carga, 'V rms')}",
     )
 
     # (e) Fasorial de tensiones en Estrella (por carga, primeras en Y)
@@ -889,10 +952,8 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
             van_fasores += [van, vbn, vcn]
             _bloque_inciso(
                 consola, "e", f"Fasorial de tensiones Estrella — carga C{k}",
-                "V_an = V_f ; V_bn = V_an/-120 ; V_cn = V_an/120",
-                f"V_f = {_fmt_complejo(c['v_fase'])}",
-                f"{_fmt_complejo(van)} | {_fmt_complejo(vbn)} | {_fmt_complejo(vcn)}",
-                f"{_fmt_polar(van)} | {_fmt_polar(vbn)} | {_fmt_polar(vcn)}",
+                "V_an = {0} ; V_bn = {1} ; V_cn = {2}".format(
+                    _fmt_complejo(van), _fmt_complejo(vbn), _fmt_complejo(vcn)),
             )
     if van_fasores:
         _graficar_fasores(consola, van_etiquetas, van_fasores,
@@ -900,19 +961,10 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
 
     # (f) Corriente por fase de cada carga
     for k, c in enumerate(res.cargas, start=1):
-        if c["conexion"] == "Y":
-            formula = "I_f_Y = I_L"
-            sustit = f"I_L = {_fmt_complejo(res.i_linea)}"
-            etiq = "Y"
-        else:
-            formula = "I_f_Delta = I_L * exp(j30)/sqrt(3)"
-            sustit = (f"I_L = {_fmt_complejo(res.i_linea)} ; "
-                      f"sqrt(3) = {_sqrt3():.4g}")
-            etiq = "Delta"
+        etiq = "Y" if c["conexion"] == "Y" else "Delta"
         _bloque_inciso(
             consola, "f", f"Corriente por fase — carga C{k} ({etiq})",
-            formula, sustit,
-            _fmt_complejo(c["i_fase"]), _fmt_polar(c["i_fase"]),
+            f"I_f = {_fmt_complejo(c['i_fase'])}",
         )
 
     # (g) Corrientes de malla en Delta
@@ -921,10 +973,8 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
             iab, ibc, ica = _fasores_abc(c["i_fase"])
             _bloque_inciso(
                 consola, "g", f"Corrientes de malla Delta — carga C{k}",
-                "I_ab ; I_bc = I_ab/-120 ; I_ca = I_ab/120",
-                f"I_f = {_fmt_complejo(c['i_fase'])}",
-                f"{_fmt_complejo(iab)} | {_fmt_complejo(ibc)} | {_fmt_complejo(ica)}",
-                f"{_fmt_polar(iab)} | {_fmt_polar(ibc)} | {_fmt_polar(ica)}",
+                "I_ab = {0} ; I_bc = {1} ; I_ca = {2}".format(
+                    _fmt_complejo(iab), _fmt_complejo(ibc), _fmt_complejo(ica)),
             )
 
     # (h) Coordenadas para diagrama fasorial de corrientes en Delta
@@ -937,10 +987,8 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
             delta_fasores += [iab, ibc, ica]
             _bloque_inciso(
                 consola, "h", f"Coordenadas fasoriales de corrientes Delta — carga C{k}",
-                "I_ab ; I_bc ; I_ca",
-                f"I_f = {_fmt_complejo(c['i_fase'])}",
-                f"{_fmt_complejo(iab)} | {_fmt_complejo(ibc)} | {_fmt_complejo(ica)}",
-                f"{_fmt_polar(iab)} | {_fmt_polar(ibc)} | {_fmt_polar(ica)}",
+                "I_ab = {0} ; I_bc = {1} ; I_ca = {2}".format(
+                    _fmt_complejo(iab), _fmt_complejo(ibc), _fmt_complejo(ica)),
             )
     if delta_fasores:
         _graficar_fasores(consola, delta_etiquetas, delta_fasores,
@@ -951,21 +999,21 @@ def _incisos_trifasico(consola, circuito, res, datos) -> None:
     cuerpo.append("Cargas\n", style="bold underline")
     for k, c in enumerate(res.cargas, start=1):
         cuerpo.append(
-            f"  C{k}: P = {c['P'] / 1000:.4g} kW ; "
-            f"Q = {c['Q'] / 1000:.4g} kVAR\n")
+            f"  C{k}: P = {_formato_numero(c['P'], 'W')} ; "
+            f"Q = {_formato_numero(c['Q'], 'var')}\n")
     s_linea = res.s_linea
     cuerpo.append("\nLínea\n", style="bold underline")
     cuerpo.append(
-        f"  P_perdidas = {s_linea.real / 1000:.4g} kW ; "
-        f"Q_linea = {s_linea.imag / 1000:.4g} kVAR\n")
+        f"  P_perdidas = {_formato_numero(s_linea.real, 'W')} ; "
+        f"Q_linea = {_formato_numero(s_linea.imag, 'var')}\n")
     cuerpo.append(
-        f"\nTotal: P = {res.P / 1000:.4g} kW ; "
-        f"Q = {res.Q / 1000:.4g} kVAR\n")
+        f"\nTotal: P = {_formato_numero(res.P, 'W')} ; "
+        f"Q = {_formato_numero(res.Q, 'var')}\n")
     if hasattr(res, "balance") and not res.balance.ok:
         cuerpo.append(
             f"\n[red]BALANCE: S_fuente = {_fmt_complejo(res.balance.S_fuente)} "
             f"vs S_consumida = {_fmt_complejo(res.balance.S_total)} "
-            f"(err_rel = {res.balance.err_rel:.4g}).[/]")
+            f"(err_rel = {_formato_numero(res.balance.err_rel)}).[/]")
     _bloque_texto(consola, "Inciso (i) — Desglose de potencia P y Q",
                   cuerpo)
 
@@ -997,7 +1045,7 @@ def _inciso_j_correccion_fp(consola, res, datos, es_tri) -> None:
             consola, "Inciso (j) — Corrección de factor de potencia",
             (f"Carga C{datos.carga_fp}: FP actual {fp_carga:.4g} ya es >= "
              f"objetivo {fp_obj:.4g}. No se requiere compensación "
-             f"(Qc = {comp.Qc / 1000:.4g} kVAR)."))
+             f"(Qc = {_formato_numero(comp.Qc, 'var')})."))
         return
 
     # Tensión en bornes de la carga (fase). Mono usa "v", tri usa "v_fase".
@@ -1009,18 +1057,23 @@ def _inciso_j_correccion_fp(consola, res, datos, es_tri) -> None:
     cuerpo.append(f"Carga seleccionada: C{datos.carga_fp}\n", style="bold")
     cuerpo.append(f"  FP actual = {fp_carga:.4g} ; FP objetivo = {fp_obj:.4g}\n")
     cuerpo.append(
-        f"  P = {p_carga / 1000:.4g} kW ; Q = {q_carga / 1000:.4g} kVAR\n")
-    cuerpo.append(f"  phi1 = {comp.phi1_deg:.4g}° ; phi2 = {comp.phi2_deg:.4g}°\n")
+        f"  P = {_formato_numero(p_carga, 'W')} ; "
+        f"Q = {_formato_numero(q_carga, 'var')}\n")
     cuerpo.append(
-        f"  Q1 = {comp.Q1 / 1000:.4g} kVAR ; Q2 = {comp.Q2 / 1000:.4g} kVAR\n")
+        f"  φ1 = {comp.phi1_deg:.4g}° ; φ2 = {comp.phi2_deg:.4g}°\n")
     cuerpo.append(
-        f"  [bold]Qc requerida = {comp.Qc / 1000:.4g} kVAR[/] (capacitiva)\n")
+        f"  Q1 = {_formato_numero(comp.Q1, 'var')} ; "
+        f"Q2 = {_formato_numero(comp.Q2, 'var')}\n")
     cuerpo.append(
-        f"  Tensión por fase (banco Y) V_LN = {v_ln_carga:.4g} V\n")
-    cuerpo.append(f"  Xc = |V^2/Qc| = {xc.Xc:.4g} ohm\n")
+        f"  [bold]Qc requerida = {_formato_numero(comp.Qc, 'var')}[/] "
+        "(capacitiva)\n")
     cuerpo.append(
-        f"  [bold]C = 1/(2*pi*f*Xc) = {cap.C_uF:.4g} uF por fase[/] "
-        f"({cap.C_F * 1e6:.4g} uF)")
+        f"  Tensión por fase (banco Y) V_LN = "
+        f"{_formato_numero(v_ln_carga, 'V')}\n")
+    cuerpo.append(
+        f"  Xc = {_formato_numero(xc.Xc, 'ohm')}\n")
+    cuerpo.append(
+        f"  [bold]C = {_formato_numero(cap.C_uF, 'uF')} por fase[/]")
     _bloque_texto(consola, "Inciso (j) — Corrección de factor de potencia",
                   cuerpo)
 
@@ -1032,34 +1085,29 @@ def _incisos_monofasico(consola, circuito, res, datos) -> None:
     i = res.i_linea
     _bloque_inciso(
         consola, "a", "Corriente de la fuente",
-        "I = V / Z_total",
-        f"V = {_fmt_complejo(res.v_fuente)} ; Z_total = {_fmt_complejo(res.z_total)}",
-        _fmt_complejo(i), _fmt_polar(i),
+        f"I = {_fmt_complejo(i)}",
     )
     s = res.s
     _bloque_inciso(
         consola, "b", "Potencia compleja total",
-        "S = V * conj(I)",
-        f"{_fmt_complejo(res.v_fuente)} * conj({_fmt_complejo(i)})",
-        _fmt_complejo(s), _fmt_polar(s),
+        f"S = {_fmt_complejo(s)}",
     )
     v_carga = abs(res.v_carga)
     _bloque_inciso(
         consola, "d", "Tensión en bornes de la carga",
-        "V_carga = |V_carga|",
-        f"|{_fmt_complejo(res.v_carga)}|",
-        f"{v_carga:.4g} V", f"{v_carga:.4g} V rms",
+        f"V_carga = {_formato_numero(v_carga, 'V rms')}",
     )
 
     cuerpo = Text()
     cuerpo.append("Cargas\n", style="bold underline")
     for k, c in enumerate(res.cargas, start=1):
         cuerpo.append(
-            f"  C{k}: P = {c['P'] / 1000:.4g} kW ; "
-            f"Q = {c['Q'] / 1000:.4g} kVAR\n")
+            f"  C{k}: P = {_formato_numero(c['P'], 'W')} ; "
+            f"Q = {_formato_numero(c['Q'], 'var')}\n")
     cuerpo.append("\nTotal:\n", style="bold underline")
     cuerpo.append(
-        f"  P = {res.P / 1000:.4g} kW ; Q = {res.Q / 1000:.4g} kVAR")
+        f"  P = {_formato_numero(res.P, 'W')} ; "
+        f"Q = {_formato_numero(res.Q, 'var')}")
     _bloque_texto(consola, "Inciso (i) — Desglose de potencia P y Q", cuerpo)
 
     _inciso_j_correccion_fp(consola, res, datos, es_tri=False)
@@ -1077,9 +1125,10 @@ def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
         signo_b = "capacitiva" if b < 0 else "inductiva"
         cuerpo.append("Admitancia equivalente\n", style="bold underline")
         cuerpo.append(
-            f"  Y_eq = 1/Z_eq = {_fmt_complejo(y_eq)} S\n")
+            f"  Y_eq = {_fmt_complejo(y_eq)} S\n")
         cuerpo.append(
-            f"  G = {g:.4g} S ; B = {b:.4g} S "
+            f"  G = {_formato_numero(g, 'S')} ; "
+            f"B = {_formato_numero(b, 'S')} "
             f"(B {'< 0' if b < 0 else '> 0'} -> parte "
             f"[yellow]{signo_b}[/])\n")
     except Exception as err:
@@ -1089,15 +1138,14 @@ def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
     s_linea = res.s_linea
     cuerpo.append("\nPérdidas en la línea\n", style="bold underline")
     cuerpo.append(
-        f"  P_perdidas = {s_linea.real / 1000:.4g} kW ; "
-        f"Q_linea = {s_linea.imag / 1000:.4g} kVAR\n")
+        f"  P_perdidas = {_formato_numero(s_linea.real, 'W')} ; "
+        f"Q_linea = {_formato_numero(s_linea.imag, 'var')}\n")
 
     # 3) Eficiencia de transmisión
     p_cargas = sum(c["P"] for c in res.cargas)
     eta = _eficiencia(p_cargas, res.P)
     cuerpo.append("\nEficiencia de transmisión\n", style="bold underline")
-    cuerpo.append(
-        f"  eta = P_cargas / P_fuente * 100 = {eta:.4g} %\n")
+    cuerpo.append(f"  η = {eta:.4g} %\n")
 
     # 4) Regulación de voltaje en bornes
     if es_tri:
@@ -1108,27 +1156,25 @@ def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
         v_fuente = abs(res.v_fuente)
     rv = _regulacion_voltaje(v_carga, v_fuente)
     cuerpo.append("\nRegulación de voltaje\n", style="bold underline")
-    cuerpo.append(
-        f"  RV% = (V_sin_carga - V_plena)/V_plena * 100 = {rv:.4g} %\n")
+    cuerpo.append(f"  RV% = {rv:.4g} %\n")
 
     # 5) Verificación LKC en el nodo
     cuerpo.append("\nVerificación LKC en el nodo\n", style="bold underline")
     if es_tri:
         suma = sum(c["i_linea"] for c in res.cargas)
-        cuerpo.append(
-            f"  Sum(I_f_Y + I_L_Delta) = {_fmt_complejo(suma)}\n")
+        cuerpo.append(f"  Sum(I) = {_fmt_complejo(suma)}\n")
         cuerpo.append(f"  I_linea = {_fmt_complejo(res.i_linea)}\n")
         diff = abs(suma - res.i_linea)
         cuerpo.append(
-            f"  Diferencia = {diff:.4g} A "
+            f"  Diferencia = {_formato_numero(diff, 'A')} "
             f"({'[green]OK' if diff < 1e-6 else '[red]NO coincide'}[/])\n")
     else:
         suma = sum(c["i"] for c in res.cargas)
-        cuerpo.append(f"  Sum(I_ramas) = {_fmt_complejo(suma)}\n")
+        cuerpo.append(f"  Sum(I) = {_fmt_complejo(suma)}\n")
         cuerpo.append(f"  I_total = {_fmt_complejo(res.i_linea)}\n")
         diff = abs(suma - res.i_linea)
         cuerpo.append(
-            f"  Diferencia = {diff:.4g} A "
+            f"  Diferencia = {_formato_numero(diff, 'A')} "
             f"({'[green]OK' if diff < 1e-6 else '[red]NO coincide'}[/])\n")
 
     # 6) Balance de potencia (sanity check de conservación)
@@ -1139,8 +1185,9 @@ def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
     cuerpo.append(
         f"  S_consumida = {_fmt_complejo(bal.S_total)}\n")
     cuerpo.append(
-        f"  err_P = {bal.err_P:.4g} W ;  err_Q = {bal.err_Q:.4g} var ;  "
-        f"err_rel = {bal.err_rel:.4g}\n")
+        f"  err_P = {_formato_numero(bal.err_P, 'W')} ;  "
+        f"err_Q = {_formato_numero(bal.err_Q, 'var')} ;  "
+        f"err_rel = {_formato_numero(bal.err_rel)}\n")
     cuerpo.append(
         f"  Estado: "
         f"{'[green]OK (conservacion cumplida)' if bal.ok else '[red]DESBALANCE'}[/]\n")
@@ -1150,9 +1197,21 @@ def _analisis_extendido(consola, circuito, res, es_tri: bool) -> None:
               expand=True))
 
 
-def _fmt_polar(z) -> str:
-    """Formato polar ``M[ángulo]`` para un fasor."""
-    return f"{abs(z):.4g}[{_angulo_grados(z):.4g}]"
+def _fmt_polar(z, unidad: str = "") -> str:
+    """Formato polar estándar: ``MAGNITUD ∠ ÁNGULO°`` (sin ``deg``).
+
+    La magnitud usa notación de ingeniería; p. ej. ``8.9443 ∠ -63.435°``
+    o ``12.14 k ∠ -140°``.
+    """
+    coef, pref = _prefijo_ing(abs(z))
+    base = f"{coef:.4g} {pref}".strip()
+    ang = _angulo_grados(z)
+    if abs(ang) < 1e-9:
+        ang = 0.0
+    texto = f"{base} ∠ {ang:.4g}°"
+    if unidad:
+        texto += f" {unidad}"
+    return texto
 
 
 # ---------------------------------------------------------------------------
@@ -1183,8 +1242,6 @@ def _etiqueta_campo(nombre: str) -> str:
 
 def _mostrar_resultado(consola: Console, result, datos_entrada=None) -> None:
     """Presenta un contrato de servicios en un panel estructurado."""
-    from analizador.utils import format_complex
-
     if isinstance(result, dict) and "codigo" in result:
         consola.print(
             Panel(
@@ -1198,7 +1255,6 @@ def _mostrar_resultado(consola: Console, result, datos_entrada=None) -> None:
     meta = getattr(result, "meta", None)
     tema = getattr(meta, "tema", None) or type(result).__name__
     unidades = getattr(meta, "unidades", None)
-    formulas = getattr(meta, "formulas", None)
     advertencias = getattr(meta, "advertencias", None)
 
     contenido = Text()
@@ -1232,22 +1288,13 @@ def _mostrar_resultado(consola: Console, result, datos_entrada=None) -> None:
             contenido.append(f"  [{unidad}]", style="dim")
         contenido.append(" = ")
         if isinstance(valor, complex):
-            rect, polar = format_complex(valor)
-            contenido.append(rect, style="green")
-            contenido.append(f"  ({polar})", style="dim")
+            contenido.append(_fmt_polar(valor, unidad), style="green")
+            contenido.append(f"  ({_fmt_rect(valor)})", style="dim")
         else:
-            contenido.append(f"{valor:g}", style="green")
+            contenido.append(_formato_numero(valor, unidad), style="green")
         contenido.append("\n")
 
-    # 4) Procedimiento / fórmulas
-    if formulas:
-        contenido.append("\nProcedimiento\n", style="bold underline")
-        for k, f in enumerate(formulas, start=1):
-            contenido.append(f"  {k}. ")
-            contenido.append(str(f), style="dim")
-            contenido.append("\n")
-
-    # 5) Nota técnica interpretativa
+    # 4) Nota técnica interpretativa
     nota = _NOTAS.get(tema, None) or _NOTAS.get(_clave_tema(tema), None)
     if nota:
         contenido.append("\nNota\n", style="bold underline")
@@ -1488,6 +1535,7 @@ def _cmd_trifasico_cli(consola: Console, args: list[str]) -> None:
                     fuente_tipo=info_fuente["tipo"])
     if datos.taller:
         _resolver_academico(consola, circuito, res, es_tri=True, datos=datos)
+    _visualizar_si_pide(consola, datos)
 
 
 def _cmd_monofasico(consola: Console, args: list[str] | None = None) -> None:
@@ -1543,6 +1591,57 @@ def _cmd_monofasico_cli(consola: Console, args: list[str]) -> None:
     _renderizar_red(consola, circuito, res, "monofasico")
     if datos.taller:
         _resolver_academico(consola, circuito, res, es_tri=False, datos=datos)
+    _visualizar_si_pide(consola, datos)
+
+
+_MONO_ALIASES = ("--monofasico", "-m", "--1f", "--1p")
+
+# Modos simples aceptados tras --graficar y su forma normalizada con "--".
+_MODOS_SIMPLES = {"tensiones": "--tensiones",
+                  "corrientes": "--corrientes",
+                  "potencia": "--potencia"}
+
+
+def _normalizar_flags_graficar(flags: list[str]) -> list[str]:
+    """Normaliza las banderas de ``--graficar`` al formato de ``_cmd_graficar``.
+
+    Convierte los modos sin guión (``tensiones``) a ``--tensiones`` y conserva
+    los aliases de monofásico y las banderas con ``--`` tal cual.
+    """
+    normalizados = []
+    for tok in flags:
+        if tok.lower() in _MODOS_SIMPLES:
+            normalizados.append(_MODOS_SIMPLES[tok.lower()])
+        else:
+            normalizados.append(tok)
+    return normalizados
+
+
+def _visualizar_si_pide(consola: Console, datos) -> None:
+    """Tras resolver, abre la ventana de fasores si se pidió ``--graficar``."""
+    if not getattr(datos, "graficar", False):
+        return
+    flags = list(getattr(datos, "graficar_args", []))
+    args = _normalizar_flags_graficar(flags)
+    _cmd_graficar(consola, args)
+
+
+def _es_flag_monofasico(args) -> bool:
+    """Devuelve ``True`` si algún argumento pide el modo monofásico."""
+    return any(a.lower() in _MONO_ALIASES for a in args)
+
+
+def _fasores_monofasico(res):
+    """Fasores del equivalente monofásico de 1 hilo (Fase-Neutro).
+
+    Usa la tensión de fase en bornes de la carga (``res.v_carga``) y la
+    corriente de línea (``res.i_linea``), es decir ``V_a`` e ``I_a``.
+    """
+    from analizador.gui.viz import phasor_plot
+
+    return phasor_plot(
+        [res.v_carga, res.i_linea], etiquetas=["V_a", "I_a"],
+        titulo="Fasores - equivalente monofásico (1 hilo)")
 
 
 def _cmd_graficar(consola: Console, args: list[str]) -> None:
@@ -1578,11 +1677,30 @@ def _cmd_graficar(consola: Console, args: list[str]) -> None:
 
     res = estado["res"]
     es_tri = estado["es_tri"]
+    forzar_mono = _es_flag_monofasico(args)
 
+    # Modo monofásico: se fuerza con --monofasico/-m/--1f/--1p, o se hereda
+    # automáticamente si el último circuito resuelto fue monofásico.
+    usar_mono = forzar_mono or (not es_tri)
     if con_potencia:
         fig, ax = plt.subplots()
         power_triangle(res.P, res.Q, titulo="Triangulo de potencias")
         plt.sca(ax)
+    elif usar_mono:
+        if solo_tensiones:
+            from analizador.gui.viz import phasor_plot
+
+            fig, ax = phasor_plot(
+                [res.v_carga], etiquetas=["V_a"],
+                titulo="Fasores - equivalente monofásico (1 hilo)")
+        elif solo_corrientes:
+            from analizador.gui.viz import phasor_plot
+
+            fig, ax = phasor_plot(
+                [res.i_linea], etiquetas=["I_a"],
+                titulo="Fasores - equivalente monofásico (1 hilo)")
+        else:
+            fig, ax = _fasores_monofasico(res)
     elif es_tri:
         if solo_tensiones:
             fig, ax = plot_voltage_phasors(res)
@@ -1594,12 +1712,6 @@ def _cmd_graficar(consola: Console, args: list[str]) -> None:
             fig.suptitle("Fasores del sistema trifásico")
             plot_voltage_phasors(res, ax=ax_v)
             plot_current_phasors(res, ax=ax_i)
-    else:
-        # Monofásico: V_fuente, I_linea, V_carga.
-        fasores = [res.v_fuente, res.i_linea, res.v_carga]
-        etiquetas = ["V_fuente", "I_linea", "V_carga"]
-        fig, ax = phasor_plot(fasores, etiquetas=etiquetas,
-                              titulo="Fasores - circuito monofásico")
 
     if ruta:
         try:
@@ -1632,7 +1744,10 @@ def _mostrar_error_args(consola: Console, err: Exception) -> None:
             "  L = tension de linea (V_LL), F = tension de fase (V_LN). "
             "Sin prefijo se asume L.\n"
             "  Z acepta rectangular 'a+jb' o polar 'M[angulo]'.\n"
-            "  Ej: trifasico --fuente L:208[30] --cargas Y:4+j2 D:5-j4 --linea 8+j4",
+            "  --graficar [tensiones|corrientes|potencia] al final para "
+            "visualizar fasores.\n"
+            "  Ej: trifasico --fuente L:208[30] --cargas Y:4+j2 D:5-j4 "
+            "--linea 8+j4 --graficar",
             title="Argumentos invalidos",
             border_style="red",
         )
@@ -1645,13 +1760,13 @@ def _cmd_flujo(consola: Console) -> None:
         consola, "V1", "Magnitud de la tension de la fuente 1.", "V", "480"
     )
     d1 = _pedir_numero(
-        consola, "delta1", "Angulo de fase de la fuente 1.", "deg", "0"
+        consola, "delta1", "Angulo de fase de la fuente 1.", "°", "0"
     )
     v2 = _pedir_numero(
         consola, "V2", "Magnitud de la tension de la fuente 2.", "V", "480"
     )
     d2 = _pedir_numero(
-        consola, "delta2", "Angulo de fase de la fuente 2.", "deg", "10"
+        consola, "delta2", "Angulo de fase de la fuente 2.", "°", "10"
     )
     r = _pedir_numero(
         consola, "R", "Resistencia de la linea.", "ohm", "1"
@@ -1664,8 +1779,8 @@ def _cmd_flujo(consola: Console) -> None:
     res = _service("service_flujo_dos_fuentes", v1, d1, v2, d2, r + 1j * x)
     _mostrar_resultado(
         consola, res,
-        [("V1", f"{v1} V"), ("delta1", f"{d1} deg"), ("V2", f"{v2} V"),
-         ("delta2", f"{d2} deg"), ("Zline", f"{r + 1j * x} ohm")],
+        [("V1", f"{v1} V"), ("delta1", f"{d1}°"), ("V2", f"{v2} V"),
+         ("delta2", f"{d2}°"), ("Zline", f"{r + 1j * x} ohm")],
     )
 
 
@@ -1813,6 +1928,16 @@ def _cmd_help(consola: Console) -> None:
         "  [cyan]monofasico linea --z 8+j4[/]\n"
     )
     consola.print(
+        "\n[bold]Visualizacion:[/] 'graficar' muestra los fasores del ultimo "
+        "circuito resuelto.\n"
+        "  [cyan]graficar[/] | [cyan]graficar --tensiones[/] | "
+        "[cyan]graficar --corrientes[/]\n"
+        "  [cyan]graficar --potencia[/] | [cyan]graficar --guardar "
+        "fasores.png[/]\n"
+        "  [cyan]graficar --monofasico[/] (o -m/--1f/--1p): equivalente "
+        "monofasico 1 hilo (V_a, I_a).\n"
+    )
+    consola.print(
         "\n[bold]Navegacion:[/] escriba [cyan]volver[/], [cyan]salir[/] o "
         "[cyan]exit[/] para cancelar el contexto actual y volver al prompt "
         "principal."
@@ -1940,8 +2065,9 @@ class _ComandoCompleter(Completer):
 # Banderas con doble guion sugeridas en el autocompletado para los comandos
 # de red (trifasico / monofasico) y de visualización (graficar / fasores).
 _BANDERAS = ("--fuente", "--cargas", "--linea", "--lineas", "--paralelo",
-             "--taller", "--carga-fp", "--fp",
-             "--tensiones", "--corrientes", "--potencia", "--guardar")
+             "--taller", "--carga-fp", "--fp", "--graficar",
+             "--tensiones", "--corrientes", "--potencia", "--guardar",
+             "--monofasico", "-m", "--1f", "--1p")
 
 
 def _palabras_comandos() -> list[str]:

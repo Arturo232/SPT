@@ -242,10 +242,12 @@ def test_desglose_no_en_monofasico(consola):
 # ---------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def _nav_limpia():
-    """Limpia la pila de navegación entre pruebas (estado de módulo)."""
+    """Limpia la pila de navegación y el último resultado entre pruebas."""
     cli._nav_reset()
+    cli._ULTIMO_RESULTADO = None
     yield
     cli._nav_reset()
+    cli._ULTIMO_RESULTADO = None
 
 
 @pytest.fixture(autouse=True)
@@ -396,7 +398,7 @@ def test_fuente_fase_magnitud_convertida(consola):
     cli._ejecutar(consola, "trifasico --fuente F:120[0] --cargas Y:4+j2")
     txt = consola.export_text()
     assert "Fuente (fase)" in txt
-    assert "sqrt(3)" in txt
+    assert "V_LL = 207.8 V" in txt
     assert "V_LN = 120 V" in txt
 
 
@@ -407,7 +409,7 @@ def test_fuente_angulo_linea_opcion_b(consola):
     assert "Fuente (linea)" in txt
     assert "restando 30" in txt
     # la tension de fase en la carga debe estar casi en 0 deg (despues de linea)
-    assert "120.089 angulo 0 deg" in txt or "120.089" in txt
+    assert "120.1 ∠ 0°" in txt or "120.089" in txt
 
 
 # ---------------------------------------------------------------------------
@@ -482,10 +484,10 @@ def test_inciso_b_c_potencia_coincide_con_motor(consola):
     txt = consola.export_text()
     # (b) y (c) deben coincidir con S3f del motor
     s_mag = abs(res.s3f)
-    # la magnitud de S3f aparece al menos en (b) y (c)
-    assert txt.count(f"{s_mag:.4g}") >= 2
+    # la magnitud de S3f (en notación de ingeniería) aparece al menos en (b) y (c)
+    assert txt.count(f"{s_mag / 1000:.4g} k") >= 2
     # ambos métodos deben dar el mismo resultado complejo
-    assert f"{abs(res.s3f):.4g}" in txt
+    assert f"{s_mag / 1000:.4g} k" in txt
 
 
 def test_inciso_a_corriente_fuente(consola):
@@ -516,9 +518,10 @@ def test_inciso_e_fasorial_estrella(consola):
     with patch("matplotlib.pyplot.show"):
         cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
     txt = consola.export_text()
-    assert "V_an = V_f" in txt
+    assert "V_an =" in txt
     assert "V_bn" in txt and "V_cn" in txt
     assert "Fasorial de tensiones (Estrella)" in txt
+    assert "∠" in txt and "°" in txt
 
 
 def test_inciso_f_g_h_delta(consola):
@@ -526,7 +529,7 @@ def test_inciso_f_g_h_delta(consola):
         cli._ejecutar(
             consola, "trifasico --fuente 208 --cargas D:5-j4 --taller")
     txt = consola.export_text()
-    assert "I_f_Delta = I_L * exp(j30)/sqrt(3)" in txt
+    assert "I_f =" in txt
     assert "I_ab" in txt and "I_bc" in txt and "I_ca" in txt
     assert "Fasorial de corrientes (Delta)" in txt
 
@@ -535,7 +538,7 @@ def test_inciso_i_desglose_potencia(consola):
     cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
     txt = consola.export_text()
     assert "P_perdidas" in txt
-    assert "kW" in txt and "kVAR" in txt
+    assert "kW" in txt and "kvar" in txt
 
 
 def test_inciso_j_correccion_fp_kvar(consola):
@@ -550,7 +553,7 @@ def test_inciso_j_correccion_fp_kvar(consola):
     c = res.cargas[0]
     comp = required_reactive_power(c["P"], c["fp"], 0.8)
     txt = consola.export_text()
-    assert f"{comp.Qc / 1000:.4g} kVAR" in txt
+    assert f"{comp.Qc / 1000:.4g} kvar" in txt
 
 
 def test_inciso_j_correccion_fp_capacitancia(consola):
@@ -575,7 +578,7 @@ def test_inciso_j_correccion_fp_capacitancia(consola):
 def test_analisis_extendido_variables(consola):
     cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
     txt = consola.export_text()
-    assert "Y_eq = 1/Z_eq" in txt
+    assert "Y_eq =" in txt
     assert "Eficiencia de transmisión" in txt
     assert "Regulación de voltaje" in txt
     assert "Verificación LKC" in txt
@@ -609,3 +612,283 @@ def test_parser_taller_defaults():
     assert datos.taller is False
     assert datos.carga_fp == 1
     assert datos.fp_objetivo == pytest.approx(0.8)
+
+
+# ---------------------------------------------------------------------------
+# Comando graficar / fasores
+# ---------------------------------------------------------------------------
+def test_graficar_sin_resultado(consola):
+    cli._ejecutar(consola, "graficar")
+    txt = consola.export_text()
+    assert "No hay resultado previo" in txt
+
+
+def test_graficar_trifasico_tensiones(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --tensiones")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+    import matplotlib.pyplot as plt
+    assert plt.get_fignums()
+    assert plt.gcf().axes[0].get_title() == "Fasores de tensión"
+
+
+def test_graficar_trifasico_por_defecto(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2 D:5-j4")
+    cli._ejecutar(consola, "fasores")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+    import matplotlib.pyplot as plt
+    fig = plt.gcf()
+    assert len(fig.axes) >= 2
+
+
+def test_graficar_trifasico_corrientes(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --corrientes")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+    import matplotlib.pyplot as plt
+    assert plt.gcf().axes[0].get_title() == "Fasores de corriente"
+
+
+def test_graficar_guardar(tmp_path):
+    consola = Console(record=True)
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+        ruta = tmp_path / "fasores.png"
+        cli._ejecutar(consola, f"graficar --guardar {ruta}")
+    txt = consola.export_text()
+    assert "Figura exportada a" in txt
+    assert ruta.exists()
+    assert ruta.stat().st_size > 0
+
+
+def test_graficar_potencia(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --potencia")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_graficar_monofasico(consola):
+    cli._ejecutar(consola, "monofasico --fuente 120 --cargas 4+j2")
+    cli._ejecutar(consola, "graficar")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_phasor_plot_dibuja_vectores():
+    from analizador.gui.viz import phasor_plot
+
+    fig, ax = phasor_plot([120 + 0j, -60 - 103.9j], ["Van", "Vbn"], unidad="V")
+    etiquetas = [t.get_text() for t in ax.texts if t.get_text().strip()]
+    assert len(etiquetas) >= 2
+    assert any("Van: 120.00 V" in e for e in etiquetas)
+    flechas = [t for t in ax.texts if getattr(t, "arrow_patch", None) is not None]
+    assert len(flechas) >= 2
+    assert ax.get_rmax() > 0
+    assert ax.get_rmax() <= 120 * 1.10 + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Bandera --graficar dentro de trifasico / monofasico
+# ---------------------------------------------------------------------------
+def test_parser_flag_graficar():
+    datos = cli._parse_red_args(
+        ["--fuente", "216.51[0]", "--cargas", "Y:36+j40", "--graficar"])
+    assert datos.graficar is True
+    assert datos.graficar_args == []
+
+
+def test_parser_flag_graficar_modo():
+    datos = cli._parse_red_args(
+        ["--fuente", "216.51[0]", "--cargas", "Y:36+j40",
+         "--graficar", "tensiones"])
+    assert datos.graficar is True
+    assert datos.graficar_args == ["tensiones"]
+
+
+def test_parser_flag_graficar_mono_alias():
+    datos = cli._parse_red_args(
+        ["--fuente", "216.51[0]", "--cargas", "Y:36+j40",
+         "--graficar", "-m"])
+    assert datos.graficar is True
+    assert datos.graficar_args == ["-m"]
+
+
+def test_parser_flag_graficar_1f_tensiones():
+    datos = cli._parse_red_args(
+        ["--fuente", "216.51[0]", "--cargas", "Y:36+j40",
+         "--graficar", "--1f", "--tensiones"])
+    assert datos.graficar_args == ["--1f", "--tensiones"]
+
+
+def test_parser_flag_graficar_invalida():
+    with pytest.raises(ValueError, match="bandera de visualizacion"):
+        cli._parse_red_args(
+            ["--fuente", "216.51[0]", "--cargas", "Y:36+j40",
+             "--graficar", "-mono"])
+
+
+def test_trifasico_graficar_bandera(consola):
+    cli._ejecutar(
+        consola, "trifasico --fuente 216.51[0] --cargas Y:36+j40 --graficar")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_trifasico_graficar_modo_tensiones(consola):
+    cli._ejecutar(
+        consola, "trifasico --fuente 216.51[0] --cargas Y:36+j40 "
+                 "--graficar tensiones")
+    import matplotlib.pyplot as plt
+    assert plt.gcf().axes[0].get_title() == "Fasores de tensión"
+
+
+def test_monofasico_graficar_bandera(consola):
+    cli._ejecutar(consola, "monofasico --fuente 120 --cargas 4+j2 --graficar")
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_trifasico_graficar_con_alias_m(consola):
+    cli._ejecutar(
+        consola, "trifasico --fuente 207.85[0] --cargas Y:30+j40 "
+                 "--taller --graficar -m")
+    assert "equivalente monofásico" in _titulo_fig()
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_trifasico_graficar_con_1f_tensiones(consola):
+    cli._ejecutar(
+        consola, "trifasico --fuente 207.85[0] --cargas Y:30+j40 "
+                 "--graficar --1f --tensiones")
+    assert "equivalente monofásico" in _titulo_fig()
+
+
+def test_trifasico_graficar_bandera_invalida(consola):
+    cli._ejecutar(
+        consola, "trifasico --fuente 207.85[0] --cargas Y:30+j40 "
+                 "--graficar -mono")
+    txt = consola.export_text()
+    assert "bandera de visualizacion desconocida" in txt
+
+
+# ---------------------------------------------------------------------------
+# Modo monofásico en graficar / fasores
+# ---------------------------------------------------------------------------
+def _titulo_fig():
+    import matplotlib.pyplot as plt
+    return plt.gcf().axes[0].get_title()
+
+
+def test_graficar_monofasico_sobre_trifasico(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --monofasico")
+    assert "equivalente monofásico" in _titulo_fig()
+    txt = consola.export_text()
+    assert "Diagrama generado correctamente" in txt
+
+
+def test_graficar_monofasico_alias_m(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar -m")
+    assert "equivalente monofásico" in _titulo_fig()
+
+
+def test_graficar_monofasico_alias_1f(consola):
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --1f")
+    assert "equivalente monofásico" in _titulo_fig()
+
+
+def test_graficar_monofasico_solo_tensiones(consola):
+    import matplotlib.pyplot as plt
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --monofasico --tensiones")
+    etiquetas = [t.get_text() for t in plt.gcf().axes[0].texts
+                 if t.get_text().strip()]
+    assert any("V_a" in e for e in etiquetas)
+
+
+def test_graficar_monofasico_solo_corrientes(consola):
+    import matplotlib.pyplot as plt
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar --monofasico --corrientes")
+    etiquetas = [t.get_text() for t in plt.gcf().axes[0].texts
+                 if t.get_text().strip()]
+    assert any("I_a" in e for e in etiquetas)
+
+
+def test_graficar_automatico_monofasico_sin_bandera(consola):
+    cli._ejecutar(consola, "monofasico --fuente 120 --cargas 4+j2")
+    cli._ejecutar(consola, "graficar")
+    assert "equivalente monofásico" in _titulo_fig()
+
+
+def test_graficar_trifasico_sigue_siendo_3f(consola):
+    import matplotlib.pyplot as plt
+
+    cli._ejecutar(consola, "trifasico --fuente 208 --cargas Y:4+j2")
+    cli._ejecutar(consola, "graficar")
+    fig = plt.gcf()
+    assert "equivalente monofásico" not in fig.axes[0].get_title()
+    assert len(fig.axes) >= 2
+
+
+# ---------------------------------------------------------------------------
+# Formateador matemático (polar ∠, notación de ingeniería)
+# ---------------------------------------------------------------------------
+def test_fmt_polar_simbolo_angulo():
+    assert "8.944 ∠ -63.43°" in cli._fmt_polar(4 - 8j)
+
+
+def test_fmt_polar_sin_deg_ni_corchetes():
+    texto = cli._fmt_polar(120.089)
+    assert "deg" not in texto
+    assert "[" not in texto and "]" not in texto
+    assert "∠" in texto and "°" in texto
+
+
+def test_fmt_polar_con_prefijo_ingenieria():
+    texto = cli._fmt_polar(9674.12, "VA")
+    assert texto.startswith("9.674 k")
+    assert "∠" in texto
+
+
+def test_fmt_complejo_rect_como_apoyo():
+    texto = cli._fmt_complejo(3 + 4j)
+    assert "5 ∠ 53.13°" in texto
+    assert "(3 + j4)" in texto
+
+
+def test_formato_numero_sin_notacion_cientifica():
+    assert cli._formato_numero(120.089, "V") == "120.1 V"
+    assert cli._formato_numero(12400, "W") == "12.4 kW"
+    assert cli._formato_numero(530.52e-6, "F") == "530.5 µF"
+    for v in (1.88e-16, 9.674e3, 0.00045):
+        assert "e" not in cli._formato_numero(v)
+
+
+def test_prefijo_ing_multiplos_de_tres():
+    coef, pref = cli._prefijo_ing(8652.8)
+    assert abs(coef - 8.6528) < 1e-3 and pref == "k"
+    coef, pref = cli._prefijo_ing(0.005)
+    assert abs(coef - 5.0) < 1e-9 and pref == "m"
+
+
+def test_taller_sin_formulas():
+    from unittest.mock import patch
+
+    consola = Console(record=True)
+    with patch("matplotlib.pyplot.show"):
+        cli._ejecutar(
+            consola, "trifasico --fuente 208 --cargas Y:4+j2 --taller")
+    txt = consola.export_text()
+    assert "Fórmula" not in txt
+    assert "Sustitución" not in txt
+    assert "exp(j30)" not in txt and "sqrt(3)" not in txt

@@ -1,5 +1,9 @@
 """Fixtures y helpers compartidos de las pruebas."""
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import numpy as np
 import pytest
 

@@ -1033,7 +1033,7 @@ def _ejecutar_comando(sesion, linea):
             if tipo_grafica == "potencia":
                 p_val = r.P
                 q_val = r.Q
-                ax = power_triangle(p_val, q_val, titulo="Triangulo de Potencia - Circuito %s" % sesion.modo.capitalize())
+                power_triangle(p_val, q_val, titulo="Triangulo de Potencia - Circuito %s" % sesion.modo.capitalize())
             else:
                 if _es_mono(circuito):
                     fasores = [r.v_fuente, r.i_linea, r.v_carga]
@@ -1041,7 +1041,7 @@ def _ejecutar_comando(sesion, linea):
                 else:
                     fasores = [r.v_fuente_fase, r.i_linea, r.v_carga]
                     etiquetas = ["Vf_fuente", "I_linea", "Vf_carga"]
-                ax = phasor_plot(fasores, etiquetas=etiquetas, titulo="Diagrama Fasorial - Circuito %s" % sesion.modo.capitalize())
+                phasor_plot(fasores, etiquetas=etiquetas, titulo="Diagrama Fasorial - Circuito %s" % sesion.modo.capitalize())
             plt.show()
             _consola.print("[green]Grafica generada correctamente.[/]")
         except Exception as err:

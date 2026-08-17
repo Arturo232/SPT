@@ -67,6 +67,11 @@ def phasor_plot(fasores, etiquetas=None, titulo="Diagrama de fasores",
     magnitudes = np.abs(fasores)
     rmax = magnitudes.max() * 1.10 if magnitudes.max() > 0 else 1.0
 
+    # Offsets de etiqueta por fasor. Si dos fasores tienen ángulos muy
+    # cercanos (ej. corriente de línea e interna en Delta) se varía el
+    # desplazamiento para que los textos no se traslapen.
+    offsets = _calcular_offsets_etiquetas(angulos, n)
+
     for k in range(n):
         color = colores[k]
         # Flecha desde el origen hasta la punta del fasor.
@@ -76,16 +81,45 @@ def phasor_plot(fasores, etiquetas=None, titulo="Diagrama de fasores",
                             lw=2, mutation_scale=18),
         )
         if etiquetas[k]:
-            ax.text(angulos[k], magnitudes[k] * 1.04,
-                    _fmt_polar_label(etiquetas[k], fasores[k], unidad),
-                    ha="center", va="bottom", fontsize=8, color=color)
+            dx, dy = offsets[k]
+            ax.annotate(
+                _fmt_polar_label(etiquetas[k], fasores[k], unidad),
+                xy=(angulos[k], magnitudes[k]),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                fontsize=8, color=color, ha="left", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none",
+                          alpha=0.7),
+            )
 
     ax.set_ylim(0, rmax)
     ax.set_rmax(rmax)
+    # Desplaza las etiquetas radiales hacia afuera para no interrumpir la
+    # lectura de los fasores.
     ax.set_rticks(np.linspace(0, rmax, 5))
+    ax.tick_params(pad=10)
     ax.grid(True)
     ax.set_title(titulo)
     return fig, ax
+
+
+def _calcular_offsets_etiquetas(angulos, n, umbral_grados=5.0):
+    """Calcula offsets (en puntos) para las etiquetas de cada fasor.
+
+    Si dos fasores comparten un ángulo casi idéntico (dentro de
+    ``umbral_grados``), se alterna el desplazamiento vertical para que los
+    textos no se encimen. El resto usa un offset por defecto (5, 5).
+    """
+    offsets = [(5, 5)] * n
+    grados = np.degrees(angulos)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dif = abs(grados[i] - grados[j])
+            dif = min(dif, 360.0 - dif)
+            if dif < umbral_grados:
+                # Textos en direcciones opuestas para separarlos.
+                offsets[j] = (5, -12)
+    return offsets
 
 
 def plot_voltage_phasors(res, ax=None):
