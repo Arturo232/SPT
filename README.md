@@ -19,7 +19,7 @@
 ### 🐧 Linux (Arch Linux / Debian / Ubuntu) — Bash
 
 ```bash
-git clone https://github.com/Arturo232/SPT.git
+git clone git@github.com:Arturo232/SPT.git
 cd SPT
 python -m venv .venv
 source .venv/bin/activate
@@ -30,7 +30,7 @@ spt
 ### 🪟 Windows (PowerShell / CMD)
 
 ```powershell
-git clone https://github.com/Arturo232/SPT.git
+git clone git@github.com:Arturo232/SPT.git
 cd SPT
 python -m venv .venv
 .venv\Scripts\activate
