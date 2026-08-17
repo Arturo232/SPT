@@ -14,6 +14,39 @@
 
 ---
 
+## 🚀 Inicio Rápido (Instalación y Ejecución)
+
+### 🐧 Linux (Arch Linux / Debian / Ubuntu) — Bash
+
+```bash
+git clone https://github.com/Arturo232/SPT.git
+cd SPT
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+spt  # ¡Lanza la aplicación directamente!
+```
+
+### 🪟 Windows (PowerShell / CMD)
+
+```powershell
+git clone https://github.com/Arturo232/SPT.git
+cd SPT
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+spt  # ¡Lanza la aplicación directamente!
+```
+
+> 💡 **¿Qué es `spt`?**
+> El comando `pip install -e .` registra la aplicación como un **ejecutable
+> global del entorno** (en `bin/` de Linux o `Scripts\` de Windows). Por eso,
+> una vez instalado, puede abrir la consola interactiva en **cualquier
+> momento** escribiendo simplemente `spt` en la terminal. El punto de entrada
+> `main()` de `analizador/cli/console.py` es el que inicia la REPL.
+
+---
+
 ## 📖 Descripción General
 
 SPT es un **analizador y calculador modular de SEP** escrito en Python 3.10+,
@@ -168,10 +201,50 @@ $$C_{\mu F} = \frac{10^6}{2\pi f X_c}$$
 pip install -e .[dev]
 ```
 
+### 🚀 Instalación y Uso Ejecutable (Linux & Windows)
+
+SPT se empaqueta como un **ejecutable de consola** invocable con el comando
+`spt` en cualquier terminal, tanto en Linux como en Windows. El `entry point`
+`main()` de `analizador/cli/console.py` es el que inicia la REPL.
+
+#### 🐧 Linux (bash)
+
+```bash
+cd /ruta/del/proyecto
+pip install -e .
+```
+
+Luego, simplemente escriba:
+
+```bash
+spt
+```
+
+#### 🪟 Windows (PowerShell)
+
+```powershell
+cd C:\ruta\del\proyecto
+pip install -e .
+```
+
+Luego, simplemente escriba:
+
+```powershell
+spt
+```
+
+> 💡 **Nota:** `pip` genera el ejecutable `spt` automáticamente:
+> - **Linux/macOS** → en `bin/` del entorno (e.g. `.venv/bin/spt`).
+> - **Windows** → en `Scripts\` del entorno (e.g. `.venv\Scripts\spt.exe`).
+>
+> Si usa un entorno virtual, actívelo primero para que `spt` quede en el
+> `PATH`.
+
 ### Arranque
 
 ```bash
-analizador          # consola interactiva REPL (experiencia por defecto)
+spt                 # consola interactiva REPL (comando ejecutable)
+analizador          # alias compatible
 analizador-gui      # interfaz gráfica (CustomTkinter, modo oscuro)
 python -m analizador
 ```
