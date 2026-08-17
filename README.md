@@ -24,7 +24,7 @@ cd SPT
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-spt  # ¡Lanza la aplicación directamente!
+spt
 ```
 
 ### 🪟 Windows (PowerShell / CMD)
@@ -35,15 +35,16 @@ cd SPT
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .
-spt  # ¡Lanza la aplicación directamente!
+spt
 ```
 
 > 💡 **¿Qué es `spt`?**
-> El comando `pip install -e .` registra la aplicación como un **ejecutable
-> global del entorno** (en `bin/` de Linux o `Scripts\` de Windows). Por eso,
-> una vez instalado, puede abrir la consola interactiva en **cualquier
-> momento** escribiendo simplemente `spt` en la terminal. El punto de entrada
-> `main()` de `analizador/cli/console.py` es el que inicia la REPL.
+> Al clonar el repositorio e instalar con `pip install -e .`, la aplicación
+> queda registrada globalmente bajo el comando `spt` (como ejecutable del
+> entorno, en `bin/` de Linux o `Scripts\` de Windows). Por eso, una vez
+> instalado, puede abrir la consola interactiva en **cualquier momento**
+> escribiendo simplemente `spt` en la terminal. El punto de entrada `main()`
+> de `analizador/cli/console.py` es el que inicia la REPL.
 
 ---
 
