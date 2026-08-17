@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "analizador-sep"
-version = "1.7.0"
+version = "1.0.0"
 description = "Analizador de Sistemas de Potencia (portado de MATLAB a Python)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,7 @@ dev = [
 ]
 
 [project.scripts]
+spt = "analizador.cli.console:main"
 analizador = "analizador.cli.console:main"
 analizador-gui = "analizador.gui.app:main"
 
