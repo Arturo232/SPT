@@ -26,3 +26,9 @@ htmlcov/
 # Salidas del analizador (exportaciones temporales)
 *.xlsx
 resultados/
+
+# Repo anidado de agentes (tiene su propio repositorio git)
+HerramientasAgentes/
+
+# Artefactos de Playwright MCP
+.playwright-mcp/
